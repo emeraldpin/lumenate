@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revenue Analysis</title>
+<title>Lumenate - Revenue Analysis</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -725,8 +725,8 @@ function getPaidSKUs(extraCats={}){
 }
 
 // Per-SKU calculation type (used in calcAmounts)
-const SKU_WITH_SHIPPING = new Set(['LUM-NOVA-001']); // net = ItemTotal + ShippingCost
-const SKU_ITEM_ONLY     = new Set(['LUM-1Y-ACCESS-6000']); // net = ItemTotal only
+const SKU_WITH_SHIPPING = new Set(['LUM-NOVA-001']); // gross = ItemTotal + ItemTax + ShippingCost + ShippingTax
+const SKU_ITEM_ONLY     = new Set(['LUM-1Y-ACCESS-6000']); // gross = ItemTotal + ItemTax
 
 // Runtime state for user-assigned new SKUs
 let userCatAssignments = {}; // { sku: 'digital'|'physical'|'free' }
@@ -741,27 +741,25 @@ function calcAmounts(sku, cc, r, cols){
   const shippingTax = cols.shippingTax ? parseNum(r[cols.shippingTax]) : 0;
   const vatPct      = (VAT[cc]||0) / 100;
 
+  // Step 1: build gross from sheet columns (same for all regions)
+  let gross;
+  if(SKU_WITH_SHIPPING.has(sku)){
+    gross = itemTotal + itemTax + shippingCost + shippingTax;
+  } else {
+    gross = itemTotal + itemTax;
+  }
+
+  let vat, net;
   if(isEUorUK){
-    // EU/UK: we know the VAT rate, so we calculate from net
-    let net;
-    if(SKU_WITH_SHIPPING.has(sku)){
-      net = itemTotal + shippingCost;          // Item Total + Shipping Cost
-    } else {
-      net = itemTotal;                          // Item Total only
-    }
-    const vat   = net * vatPct;
-    const gross = net + vat;
+    // UK/EU: back-calculate VAT and net from gross using country VAT rate
+    // gross = net * (1 + vatPct)  →  net = gross / (1 + vatPct)
+    net = vatPct > 0 ? gross / (1 + vatPct) : gross;
+    vat = gross - net;
     return { gross, net, vat, calcMethod: 'eu_uk' };
   } else {
-    // ROW: use actual tax amounts from the sheet
-    let gross;
-    if(SKU_WITH_SHIPPING.has(sku)){
-      gross = itemTotal + itemTax + shippingCost + shippingTax;
-    } else {
-      gross = itemTotal + itemTax;
-    }
-    const vat = itemTax + shippingTax;         // actual tax from sheet
-    const net = gross - vat;
+    // ROW: use actual tax amounts from the sheet columns
+    vat = itemTax + (SKU_WITH_SHIPPING.has(sku) ? shippingTax : 0);
+    net = gross - vat;
     return { gross, net, vat, calcMethod: 'row' };
   }
 }
