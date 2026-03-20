@@ -385,12 +385,35 @@ function toGBP(curr,amt,date){
   const r=getRateForDate(date,curr);
   return{gbp:amt/r,rate:r,rateDesc:`1 GBP = ${r.toFixed(4)} ${curr}`};
 }
-function toDisp(gbp){
-  if((document.getElementById('disp-curr')?.value||'GBP')==='GBP')return gbp;
+function toEUR(curr,amt,date){
+  // Convert any currency to EUR using the per-date rate
+  if(curr==='EUR') return amt;
+  if(curr==='GBP'){
+    const eurPerGBP = getRateForDate(date,'EUR') || getLatestRate('EUR');
+    return amt * eurPerGBP;
+  }
+  // other currency: curr→GBP→EUR
+  const r = getRateForDate(date,curr); // 1 GBP = r CURR
+  const gbp = amt / r;
+  const eurPerGBP = getRateForDate(date,'EUR') || getLatestRate('EUR');
+  return gbp * eurPerGBP;
+}
+// toDisp converts a GBP value for display — but accepts origCurr+origAmt to avoid
+// double-conversion when the original was already EUR
+function toDisp(gbp, origCurr, origAmt){
+  if((document.getElementById('disp-curr')?.value||'GBP')==='GBP') return gbp;
+  // Displaying in EUR
+  if(origCurr==='EUR' && origAmt!=null) return origAmt; // use original — no rounding
   return gbp*(getLatestRate('EUR')||1);
 }
 function sym(){return(document.getElementById('disp-curr')?.value||'GBP')==='GBP'?'£':'€';}
 function fmt(n){return sym()+toDisp(n).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+// fmtD: display either GBP or EUR value — use pre-computed EUR to avoid double-conversion
+function fmtD(gbpVal, eurVal){
+  const isEUR = (document.getElementById('disp-curr')?.value||'GBP')==='EUR';
+  const v = isEUR ? (eurVal!=null ? eurVal : toDisp(gbpVal)) : gbpVal;
+  return sym()+v.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function fmtN(n){return n.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function vr(cc){return(VAT[cc]||0)/100;}
 function rgn(cc){return UK.has(cc)?'UK':EU.has(cc)?'EU':'ROW';}
@@ -784,7 +807,11 @@ function buildAllOrders(){
     const netGBP = curr==='GBP' ? net : net / fxRate;
     const vatGBP = curr==='GBP' ? vat : vat / fxRate;
     const monthKey = dateToMonthKey(date)||'';
-    orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'woo'});
+    // Store EUR amounts directly to avoid double-conversion when displaying in EUR
+    const grossEUR = toEUR(curr, gross, date);
+    const netEUR   = toEUR(curr, net,   date);
+    const vatEUR   = toEUR(curr, vat,   date);
+    orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, grossEUR, netEUR, vatEUR, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'woo'});
   });
 
   // ── Stripe orders (Subscription update = LUM-1Y-ACCESS-6000) ──
@@ -814,7 +841,10 @@ function buildAllOrders(){
       const netGBP = curr==='GBP' ? net : net / fxRate;
       const vatGBP = curr==='GBP' ? vat : vat / fxRate;
       const monthKey = dateToMonthKey(date)||'';
-      orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'stripe'});
+      const grossEUR_s = toEUR(curr, gross, date);
+      const netEUR_s   = toEUR(curr, net,   date);
+      const vatEUR_s   = toEUR(curr, vat,   date);
+      orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, grossEUR:grossEUR_s, netEUR:netEUR_s, vatEUR:vatEUR_s, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'stripe'});
     });
   }
 
@@ -876,11 +906,14 @@ function applyFilters(){
   // Aggregate
   const map={};
   activeOrders.forEach(o=>{
-    if(!map[o.cc])map[o.cc]={orders:[],grossGBP:0,netGBP:0,vatGBP:0};
+    if(!map[o.cc])map[o.cc]={orders:[],grossGBP:0,netGBP:0,vatGBP:0,grossEUR:0,netEUR:0,vatEUR:0};
     map[o.cc].orders.push(o);
     map[o.cc].grossGBP+=o.grossGBP;
     map[o.cc].netGBP  +=o.netGBP;
     map[o.cc].vatGBP  +=o.vatGBP;
+    map[o.cc].grossEUR+=o.grossEUR||0;
+    map[o.cc].netEUR  +=o.netEUR||0;
+    map[o.cc].vatEUR  +=o.vatEUR||0;
   });
   countryMap=map;
   // Month label for header
@@ -1106,22 +1139,21 @@ function toggleFX(){fxOpen=!fxOpen;document.getElementById('fxwrap').classList.t
 
 // ── RENDER ───────────────────────────────────────────────────────
 function renderSummary(entries){
-  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0);
-  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0);
-  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0);
+  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0), tGe=entries.reduce((s,[,d])=>s+(d.grossEUR||0),0);
+  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0),   tVe=entries.reduce((s,[,d])=>s+(d.vatEUR||0),0);
+  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0),   tNe=entries.reduce((s,[,d])=>s+(d.netEUR||0),0);
   const tO=entries.reduce((s,[,d])=>s+d.orders.length,0);
-  const ukG=entries.filter(([cc])=>rgn(cc)==='UK').reduce((s,[,d])=>s+d.grossGBP,0);
-  const euG=entries.filter(([cc])=>rgn(cc)==='EU').reduce((s,[,d])=>s+d.grossGBP,0);
-  const rwG=entries.filter(([cc])=>rgn(cc)==='ROW').reduce((s,[,d])=>s+d.grossGBP,0);
+  const ukG=entries.filter(([cc])=>rgn(cc)==='UK').reduce((s,[,d])=>s+d.grossGBP,0), ukGe=entries.filter(([cc])=>rgn(cc)==='UK').reduce((s,[,d])=>s+(d.grossEUR||0),0);
+  const euG=entries.filter(([cc])=>rgn(cc)==='EU').reduce((s,[,d])=>s+d.grossGBP,0), euGe=entries.filter(([cc])=>rgn(cc)==='EU').reduce((s,[,d])=>s+(d.grossEUR||0),0);
+  const rowG=entries.filter(([cc])=>rgn(cc)==='ROW').reduce((s,[,d])=>s+d.grossGBP,0), rowGe=entries.filter(([cc])=>rgn(cc)==='ROW').reduce((s,[,d])=>s+(d.grossEUR||0),0);
   document.getElementById('sumbar').innerHTML=`
-    <div class="scard ctotal"><div class="slbl">Gross Revenue</div><div class="sval">${fmt(tG)}</div><div class="ssub">${tO.toLocaleString()} orders</div></div>
-    <div class="scard cvat"><div class="slbl">VAT</div><div class="sval">${fmt(tV)}</div><div class="ssub">UK/EU: calculated · ROW: from sheet</div></div>
-    <div class="scard cnet"><div class="slbl">Net Revenue</div><div class="sval">${fmt(tN)}</div><div class="ssub">Ex-VAT/tax</div></div>
-    <div class="scard cuk"><div class="slbl">🇬🇧 United Kingdom</div><div class="sval">${fmt(ukG)}</div><div class="ssub">${tG?(ukG/tG*100).toFixed(1):0}%</div></div>
-    <div class="scard ceu"><div class="slbl">🇪🇺 European Union</div><div class="sval">${fmt(euG)}</div><div class="ssub">${tG?(euG/tG*100).toFixed(1):0}%</div></div>
-    <div class="scard crow"><div class="slbl">🌐 Rest of World</div><div class="sval">${fmt(rwG)}</div><div class="ssub">${tG?(rwG/tG*100).toFixed(1):0}%</div></div>`;
+    <div class="scard ctotal"><div class="slbl">Gross Revenue</div><div class="sval">${fmtD(tG,tGe)}</div><div class="ssub">${tO.toLocaleString()} orders</div></div>
+    <div class="scard cvat"><div class="slbl">VAT</div><div class="sval">${fmtD(tV,tVe)}</div><div class="ssub">UK/EU: calculated · ROW: from sheet</div></div>
+    <div class="scard cnet"><div class="slbl">Net Revenue</div><div class="sval">${fmtD(tN,tNe)}</div><div class="ssub">Ex-VAT/tax</div></div>
+    <div class="scard cuk"><div class="slbl">🇬🇧 United Kingdom</div><div class="sval">${fmtD(ukG,ukGe)}</div><div class="ssub">${tG?(ukG/tG*100).toFixed(1):0}%</div></div>
+    <div class="scard ceu"><div class="slbl">🇪🇺 European Union</div><div class="sval">${fmtD(euG,euGe)}</div><div class="ssub">${tG?(euG/tG*100).toFixed(1):0}%</div></div>
+    <div class="scard crow"><div class="slbl">🌐 Rest of World</div><div class="sval">${fmtD(rowG,rowGe)}</div><div class="ssub">${tG?(rowG/tG*100).toFixed(1):0}%</div></div>`;
 }
-
 function renderTable(){
   if(!countryMap||!Object.keys(countryMap).length)return;
   const srch=(document.getElementById('search')?.value||'').toLowerCase();
@@ -1154,13 +1186,16 @@ function renderTable(){
       const rV=re.reduce((s,[,d])=>s+d.vatGBP,0);
       const rN=re.reduce((s,[,d])=>s+d.netGBP,0);
       const rO=re.reduce((s,[,d])=>s+d.orders.length,0);const isX=expanded.has(rg);
+      const rGe=re.reduce((s,[,d])=>s+(d.grossEUR||0),0);
+      const rVe=re.reduce((s,[,d])=>s+(d.vatEUR||0),0);
+      const rNe=re.reduce((s,[,d])=>s+(d.netEUR||0),0);
       html+=`<tr class="rrow" onclick="toggleRegion('${rg}')"><td colspan="2"><span class="rlbl">
         <span class="chv ${isX?'o':''}">▶</span><span class="rdot" style="background:${RDOT[rg]}"></span>
         ${RLBL[rg]}<span class="rmeta">${rO.toLocaleString()} orders · ${re.length} countries</span>
       </span></td>
       <td class="r dim">${rO.toLocaleString()}</td><td class="r dim">—</td>
-      <td class="r tn">${fmt(rG)}</td><td class="r tn dim">${fmt(rV)}</td>
-      <td class="r tn grn">${fmt(rN)}</td>
+      <td class="r tn">${fmtD(rG,rGe)}</td><td class="r tn dim">${fmtD(rV,rVe)}</td>
+      <td class="r tn grn">${fmtD(rN,rNe)}</td>
       <td class="r" style="white-space:nowrap">
         <button class="copy-btn" onclick="copyRegion('${rg}',event)">⎘ Copy</button>
         <button class="print-btn" onclick="printRegion('${rg}',event)">🖨</button>
@@ -1169,19 +1204,19 @@ function renderTable(){
         re.forEach(([cc,d])=>{html+=ccRow(cc,d,rg);});
         html+=`<tr class="rsub"><td colspan="2" style="padding-left:20px;color:var(--t3)">Subtotal — ${RLBL[rg]}</td>
         <td class="r">${rO.toLocaleString()}</td><td></td>
-        <td class="r tn">${fmt(rG)}</td><td class="r tn dim">${fmt(rV)}</td>
-        <td class="r tn grn">${fmt(rN)}</td><td></td></tr>`;
+        <td class="r tn">${fmtD(rG,rGe)}</td><td class="r tn dim">${fmtD(rV,rVe)}</td>
+        <td class="r tn grn">${fmtD(rN,rNe)}</td><td></td></tr>`;
       }
     });
   } else{entries.forEach(([cc,d])=>{html+=ccRow(cc,d,rgn(cc));});}
-  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0);
-  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0);
-  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0);
+  const tGt=entries.reduce((s,[,d])=>s+d.grossGBP,0), tGet=entries.reduce((s,[,d])=>s+(d.grossEUR||0),0);
+  const tVt=entries.reduce((s,[,d])=>s+d.vatGBP,0),   tVet=entries.reduce((s,[,d])=>s+(d.vatEUR||0),0);
+  const tNt=entries.reduce((s,[,d])=>s+d.netGBP,0),   tNet=entries.reduce((s,[,d])=>s+(d.netEUR||0),0);
   const tO=entries.reduce((s,[,d])=>s+d.orders.length,0);
   html+=`<tr class="grand"><td colspan="2"><strong>Grand total</strong></td>
   <td class="r"><strong>${tO.toLocaleString()}</strong></td><td></td>
-  <td class="r tn"><strong>${fmt(tG)}</strong></td><td class="r tn"><strong>${fmt(tV)}</strong></td>
-  <td class="r tn"><strong>${fmt(tN)}</strong></td><td></td></tr>`;
+  <td class="r tn"><strong>${fmtD(tGt,tGet)}</strong></td><td class="r tn"><strong>${fmtD(tVt,tVet)}</strong></td>
+  <td class="r tn"><strong>${fmtD(tNt,tNet)}</strong></td><td></td></tr>`;
   document.getElementById('tbody').innerHTML=html;
 }
 
@@ -1196,9 +1231,9 @@ function ccRow(cc,d,rg){
   <td><span class="badge ${bc}">${rg}</span></td>
   <td class="r">${d.orders.length.toLocaleString()}</td>
   <td class="r dim" style="font-size:11px">${vatLabel}</td>
-  <td class="r tn">${fmt(d.grossGBP)}</td>
-  <td class="r tn dim">${fmt(d.vatGBP)}</td>
-  <td class="r tn">${fmt(d.netGBP)}</td>
+  <td class="r tn">${fmtD(d.grossGBP,d.grossEUR)}</td>
+  <td class="r tn dim">${fmtD(d.vatGBP,d.vatEUR)}</td>
+  <td class="r tn">${fmtD(d.netGBP,d.netEUR)}</td>
   <td class="r dim" style="font-size:10px">${isDrill?'▲':'▼'}</td></tr>`;
   if(isDrill){
     const ords=[...d.orders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:parseInt(a.oid)-parseInt(b.oid));
@@ -1213,15 +1248,15 @@ function ccRow(cc,d,rg){
         <td class="r"><span class="badge bcurr">${o.sku}</span></td>
         <td class="r tn dim">${os}${fmtN(o.gross)}</td>
         <td class="r" style="font-size:10px;color:var(--acc);white-space:nowrap">${o.curr==='GBP'?'—':o.rateDesc}</td>
-        <td class="r tn">${fmt(o.grossGBP)}</td>
-        <td class="r tn dim">${fmt(o.vatGBP)}</td>
-        <td class="r tn">${fmt(o.netGBP)}</td></tr>`;
+        <td class="r tn">${fmtD(o.grossGBP,o.grossEUR)}</td>
+        <td class="r tn dim">${fmtD(o.vatGBP,o.vatEUR)}</td>
+        <td class="r tn">${fmtD(o.netGBP,o.netEUR)}</td></tr>`;
     });
     html+=`<tr class="drow" style="font-weight:500;border-top:1px solid var(--b2)">
       <td colspan="2" style="color:var(--t3)">Subtotal — ${CNAMES[cc]||cc}</td><td></td><td></td><td></td>
-      <td class="r tn">${fmt(d.grossGBP)}</td>
-      <td class="r tn dim">${fmt(d.vatGBP)}</td>
-      <td class="r tn grn">${fmt(d.netGBP)}</td></tr>`;
+      <td class="r tn">${fmtD(d.grossGBP,d.grossEUR)}</td>
+      <td class="r tn dim">${fmtD(d.vatGBP,d.vatEUR)}</td>
+      <td class="r tn grn">${fmtD(d.netGBP,d.netEUR)}</td></tr>`;
   }
   return html;
 }
@@ -1236,15 +1271,21 @@ function copyRegion(rg,e){
   const RLBL={UK:'United Kingdom',EU:'European Union',ROW:'Rest of World'};
   const re=Object.entries(countryMap).filter(([cc])=>rgn(cc)===rg).sort((a,b)=>b[1].grossGBP-a[1].grossGBP);
   const s=sym();
+  const isEUR=(document.getElementById('disp-curr')?.value||'GBP')==='EUR';
   const sortedMo=[...selMonths].sort().map(monthKeyToLabel);
   const lines=[`${RLBL[rg]} — ${sortedMo.join(', ')}`,'',['Country','Code','VAT %','Gross','VAT','Net'].join('\t')];
   re.forEach(([cc,d])=>{
     const isEUorUK=UK.has(cc)||EU.has(cc);
     const vatLabel=isEUorUK?((VAT[cc]||0).toFixed(1)+'%'):'from sheet';
-    lines.push([CNAMES[cc]||cc,cc,vatLabel,s+fmtN(toDisp(d.grossGBP)),s+fmtN(toDisp(d.vatGBP)),s+fmtN(toDisp(d.netGBP))].join('\t'));
+    const gV=isEUR?(d.grossEUR||toDisp(d.grossGBP)):d.grossGBP;
+    const vV=isEUR?(d.vatEUR||toDisp(d.vatGBP)):d.vatGBP;
+    const nV=isEUR?(d.netEUR||toDisp(d.netGBP)):d.netGBP;
+    lines.push([CNAMES[cc]||cc,cc,vatLabel,s+fmtN(gV),s+fmtN(vV),s+fmtN(nV)].join('\t'));
   });
-  const tG=re.reduce((s,[,d])=>s+d.grossGBP,0),tV=re.reduce((s,[,d])=>s+d.vatGBP,0),tN=re.reduce((s,[,d])=>s+d.netGBP,0);
-  lines.push(['TOTAL','','',s+fmtN(toDisp(tG)),s+fmtN(toDisp(tV)),s+fmtN(toDisp(tN))].join('\t'));
+  const tG=isEUR?re.reduce((s,[,d])=>s+(d.grossEUR||0),0):re.reduce((s,[,d])=>s+d.grossGBP,0);
+  const tV=isEUR?re.reduce((s,[,d])=>s+(d.vatEUR||0),0):re.reduce((s,[,d])=>s+d.vatGBP,0);
+  const tN=isEUR?re.reduce((s,[,d])=>s+(d.netEUR||0),0):re.reduce((s,[,d])=>s+d.netGBP,0);
+  lines.push(['TOTAL','','',s+fmtN(tG),s+fmtN(tV),s+fmtN(tN)].join('\t'));
   navigator.clipboard.writeText(lines.join('\n')).catch(()=>{const ta=document.createElement('textarea');ta.value=lines.join('\n');ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);});
   const btn=e.target;btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='⎘ Copy';btn.classList.remove('copied');},2000);
 }
@@ -1364,6 +1405,7 @@ function exportExcel(){
   if(!activeOrders.length)return;
   const wb=XLSX.utils.book_new();
   const dc=document.getElementById('disp-curr')?.value||'GBP';
+  const isEURexport=(document.getElementById('disp-curr')?.value||'GBP')==='EUR';
   const det=[['Date Paid','Order ID','SKU','Month','Ship Country','Country Name','Region','Currency','Orig Gross','Net (orig curr)','VAT (orig curr)','FX Rate (1 GBP = X curr)','Gross GBP','Gross '+dc,'VAT '+dc,'Net '+dc,'VAT Method']];
   [...activeOrders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:parseInt(a.oid)-parseInt(b.oid)).forEach(o=>{
     const isEUorUK=UK.has(o.cc)||EU.has(o.cc);
@@ -1371,8 +1413,8 @@ function exportExcel(){
     det.push([o.date,o.oid,o.sku,monthKeyToLabel(o.monthKey),o.cc,CNAMES[o.cc]||o.cc,rgn(o.cc),o.curr,
       +o.gross.toFixed(2),+o.net.toFixed(2),+o.vat.toFixed(2),
       o.curr==='GBP'?1:(o.rate||'N/A'),
-      +o.grossGBP.toFixed(2),+toDisp(o.grossGBP).toFixed(2),
-      +toDisp(o.vatGBP).toFixed(2),+toDisp(o.netGBP).toFixed(2),
+      +o.grossGBP.toFixed(2),+(isEURexport?(o.grossEUR||toDisp(o.grossGBP)):o.grossGBP).toFixed(2),
+      +(isEURexport?(o.vatEUR||toDisp(o.vatGBP)):o.vatGBP).toFixed(2),+(isEURexport?(o.netEUR||toDisp(o.netGBP)):o.netGBP).toFixed(2),
       vatMethod]);
   });
   const ws1=XLSX.utils.aoa_to_sheet(det);ws1['!cols']=[10,10,20,10,8,20,6,8,12,12,12,22,12,12,12,12,20].map(w=>({wch:w}));styleHdr(ws1,det[0].length);XLSX.utils.book_append_sheet(wb,ws1,'Order Detail');
