@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revenue Analysis</title>
+<title>Lumenate - Revenue Analysis</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -70,13 +70,13 @@ body{background:var(--bg);color:var(--t1);font-family:var(--mono);min-height:100
 .dp-dropzone.loaded{border-color:var(--acc);background:var(--acc2);color:var(--acc)}
 .dp-dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 /* Category cards in data panel — horizontal layout */
-.cat-card{display:flex;flex-direction:column;gap:5px;padding:8px 12px;background:var(--s2);border:1px solid var(--b1);border-radius:8px;min-width:140px;max-width:200px}
+.cat-card{display:flex;flex-direction:column;gap:5px;padding:8px 12px;background:var(--s2);border:1px solid var(--b1);border-radius:8px;min-width:140px;max-width:200px;transition:border-color .15s,background .15s}
 .cat-card .cat-toggle{justify-content:flex-start}
 .cat-card .cat-skus{flex-wrap:wrap}
 /* Keep old cat-row for compat */
 #app-screen{display:flex;flex-direction:column;min-height:100vh}
 .aph{background:var(--s1);border-bottom:1px solid var(--b1);padding:10px 22px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
-.aph h1{font-family:var(--disp);font-size:1.3rem;font-weight:400;font-style:italic;color:var(--t1)}
+.aph h1{font-family:var(--disp);font-size:1.2rem;font-weight:500;font-style:normal;color:var(--t1);letter-spacing:-.01em}
 .aph h1 em{color:var(--acc)}
 .pill{font-size:10px;padding:2px 8px;border-radius:20px;background:var(--s3);border:1px solid var(--b2);color:var(--t2);white-space:nowrap}
 .pill.g{border-color:var(--acc2);background:var(--acc2);color:var(--acc)}
@@ -154,6 +154,8 @@ thead th.r{text-align:right}
 .fxrow{font-size:11px;display:flex;gap:8px}
 .fxrow .fc{color:var(--t3);width:30px}.fxrow .fr{color:var(--acc)}.fxrow .fd{color:var(--t3);font-size:10px}
 
+.site-footer{text-align:right;padding:10px 22px;font-size:10px;color:var(--t3);border-top:1px solid var(--b1);background:var(--s1)}
+.site-footer strong{color:var(--t2)}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
@@ -192,7 +194,7 @@ thead th.r{text-align:right}
 <div id="app-screen">
   <!-- Header -->
   <div class="aph">
-    <h1>Revenue <em>Analysis</em></h1>
+    <h1>Lumenate &mdash; Revenue Analysis</h1>
     <div class="hsp"></div>
     <select class="hsel" id="disp-curr" onchange="applyFilters()"><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option></select>
     <select class="hsel" id="view-mode" onchange="renderTable()"><option value="grouped">Grouped</option><option value="flat">Flat</option></select>
@@ -280,6 +282,8 @@ thead th.r{text-align:right}
   <div class="fxwrap" id="fxwrap"><div class="fxpanel" id="fxpanel"></div></div>
 </div>
 
+<div class="site-footer">Powered by <strong>Strategist360</strong></div>
+
 <!-- Hidden print container -->
 <div id="print-container" style="display:none"></div>
 
@@ -292,6 +296,7 @@ const UK=new Set(['GB']);
 
 // ── STATE ──────────────────────────────────────────────────────
 let fxByDate={},fxDates=[],fxSource='';
+let pendingStripeRows=null; // Stripe transactions
 let allOrders=[],countryMap={},allSKUs=[],selSKUs=new Set();
 let allMonths=[],selMonths=new Set(); // month filter state
 let activeOrders=[]; // orders after month+sku filter
@@ -422,6 +427,36 @@ function ingestRows(rows){
 // selCats: which categories are toggled on for analysis
 let selCats = new Set(['digital','physical']); // free excluded by default
 
+function parseStripeRows(rows){
+  // Stripe columns: created_utc, currency, gross, fee, reporting_category,
+  // source_id, description, customer_facing_amount, customer_facing_currency,
+  // customer_address_country, card_country, payment_metadata[order_number]
+  // Only include "Subscription update" descriptions = LUM-1Y-ACCESS-6000
+  if(!rows||!rows.length) return [];
+  const orders=[];
+  rows.forEach(r=>{
+    const desc=(r['description']||'').toString().trim();
+    // Only Subscription update rows
+    if(!desc.toLowerCase().includes('subscription update')) return;
+    const cc  =(r['customer_address_country']||r['card_country']||'').toString().trim().toUpperCase();
+    const curr=(r['customer_facing_currency']||r['currency']||'').toString().trim().toUpperCase();
+    const date=(r['created_utc']||'').toString().trim();
+    const oid =(r['payment_metadata[order_number]']||r['source_id']||'').toString().trim();
+    // customer_facing_amount = gross incl VAT (already converted to customer currency)
+    // For ROW: use gross column (which may be in GBP)
+    // We use customer_facing_amount as the order total in customer currency
+    let grossOrig = parseNum(r['customer_facing_amount']);
+    if(!grossOrig) grossOrig = parseNum(r['gross']); // fallback
+    if(!cc||!grossOrig) return;
+    orders.push({
+      _source:'stripe', sku:'LUM-1Y-ACCESS-6000',
+      cc, curr, grossOrig, date, oid, desc
+    });
+  });
+  return orders;
+}
+
+
 function buildChips(skus){
   allSKUs = skus;
   const unassigned = skus.filter(s => !getCatForSKU(s) && !userCatAssignments[s]);
@@ -435,6 +470,7 @@ function buildChips(skus){
     const isRevenue = REVENUE_CATS.has(cat);
     const card = document.createElement('div');
     card.className = 'cat-card';
+    if(isOn){ card.style.borderColor=def.color; card.style.background=def.bg+'55'; }
     card.innerHTML = `
       <div class="cat-toggle${isOn?' on':''}" data-cat="${cat}" onclick="toggleCat('${cat}',this)"
         style="${isOn?`border-color:${def.color};background:${def.bg};color:${def.color}`:''}">
@@ -490,9 +526,18 @@ function toggleCat(cat, el){
   const def = SKU_CATEGORIES[cat]; if(!def) return;
   if(selCats.has(cat)) selCats.delete(cat); else selCats.add(cat);
   const isOn = selCats.has(cat);
+  // Update the toggle pill
   el.classList.toggle('on', isOn);
-  el.style.borderColor = isOn ? def.color : ''; el.style.background = isOn ? def.bg : ''; el.style.color = isOn ? def.color : '';
+  el.style.borderColor = isOn ? def.color : '';
+  el.style.background  = isOn ? def.bg    : '';
+  el.style.color       = isOn ? def.color : '';
   el.querySelector('.cat-dot').style.background = isOn ? def.color : 'var(--b3)';
+  // Update the parent card border
+  const card = el.closest('.cat-card');
+  if(card){
+    card.style.borderColor = isOn ? def.color : 'var(--b1)';
+    card.style.background  = isOn ? def.bg + '55' : '';
+  }
   refreshSelSKUs();
 }
 
@@ -533,16 +578,24 @@ async function loadFromScript(){
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const json=await r.json();
     if(!json.ok)throw new Error(json.error||'Script returned an error');
-    ingestRows(json.rows);
+    // Support both old format (json.rows) and new format (json.woo + json.stripe)
+    const wooRows    = json.woo    ? json.woo.rows    : (json.rows||[]);
+    const stripeRows = json.stripe ? json.stripe.rows : [];
+    pendingStripeRows = stripeRows;
+    ingestRows(wooRows);
+    const stripeCount = stripeRows.length;
     btn.textContent='↺ Reload from Google Sheet'; btn.disabled=false;
-    if(status){status.textContent='✓ Loaded'; status.style.color='var(--acc)';}
+    if(status){
+      status.textContent=`✓ Loaded — ${wooRows.length.toLocaleString()} WooCommerce + ${stripeCount.toLocaleString()} Stripe rows`;
+      status.style.color='var(--acc)';
+    }
   }catch(e){
     showErr(`Failed to load: ${e.message}`);
     btn.disabled=false; btn.textContent='↺ Load from Google Sheet';
   }
 }
 function handleFile(file){
-  showErr('');
+  showErr(''); pendingStripeRows=null; // file upload has no stripe data
   const ext=file.name.split('.').pop().toLowerCase();
   if(ext==='csv'){const fr=new FileReader();fr.onload=e=>{try{ingestRows(parseCSV(e.target.result));markDropzone(file.name);}catch(err){showErr(err.message);}};fr.readAsText(file);}
   else if(['xlsx','xls'].includes(ext)){const fr=new FileReader();fr.onload=e=>{try{const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const csv=XLSX.utils.sheet_to_csv(ws);ingestRows(parseCSV(csv));markDropzone(file.name);}catch(err){showErr(err.message);}};fr.readAsArrayBuffer(file);}
@@ -644,28 +697,57 @@ function calcAmounts(sku, cc, r, cols){
 function buildAllOrders(){
   const{rows,cols}={rows:pendingRows,cols:pendingCols};
   const orders=[];
+
+  // ── WooCommerce orders ─────────────────────────────────────
   rows.forEach(r=>{
     const sku=(r[cols.sku]||'').trim();
-    if(!selSKUs.has(sku)) return; // not in active paid categories
+    if(!selSKUs.has(sku)) return;
     const cc  =(r[cols.ship]||'').trim().toUpperCase();
     const curr=(r[cols.curr]||'').trim().toUpperCase();
     const oid =(r[cols.oid]||'').trim();
     const date=(r[cols.date]||'').trim();
     if(!cc) return;
-
     const {gross, net, vat, calcMethod} = calcAmounts(sku, cc, r, cols);
     if(isNaN(gross)||gross<=0) return;
-
-    // Convert gross to GBP using per-order FX rate
     const{gbp:grossGBP, rate, rateDesc} = toGBP(curr, gross, date);
-    // net and vat in GBP (same rate)
     const fxRate = rate||1;
-    const netGBP = curr==='GBP' ? net  : net  / fxRate;
-    const vatGBP = curr==='GBP' ? vat  : vat  / fxRate;
+    const netGBP = curr==='GBP' ? net : net / fxRate;
+    const vatGBP = curr==='GBP' ? vat : vat / fxRate;
     const monthKey = dateToMonthKey(date)||'';
-
-    orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod});
+    orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'woo'});
   });
+
+  // ── Stripe orders (Subscription update = LUM-1Y-ACCESS-6000) ──
+  if(pendingStripeRows && selSKUs.has('LUM-1Y-ACCESS-6000')){
+    const stripeOrders = parseStripeRows(pendingStripeRows);
+    stripeOrders.forEach(so=>{
+      const{cc, curr, grossOrig, date, oid} = so;
+      const sku = 'LUM-1Y-ACCESS-6000';
+      // grossOrig is already the customer-facing total incl VAT
+      const isEUorUK = UK.has(cc)||EU.has(cc);
+      const vatPct   = (VAT[cc]||0)/100;
+      let gross, net, vat, calcMethod;
+      if(isEUorUK){
+        // customer_facing_amount is gross incl VAT — extract net
+        gross = grossOrig;
+        net   = gross / (1 + vatPct);
+        vat   = gross - net;
+        calcMethod = 'eu_uk';
+      } else {
+        // ROW: treat full amount as gross, no VAT
+        gross = grossOrig; vat = 0; net = gross;
+        calcMethod = 'row';
+      }
+      if(isNaN(gross)||gross<=0) return;
+      const{gbp:grossGBP, rate, rateDesc} = toGBP(curr, gross, date);
+      const fxRate = rate||1;
+      const netGBP = curr==='GBP' ? net : net / fxRate;
+      const vatGBP = curr==='GBP' ? vat : vat / fxRate;
+      const monthKey = dateToMonthKey(date)||'';
+      orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod, source:'stripe'});
+    });
+  }
+
   if(!orders.length) throw new Error(`No orders found for selected SKUs: ${[...selSKUs].join(', ')}`);
   return orders;
 }
@@ -746,7 +828,7 @@ function resetApp(){
   const btn=document.getElementById("btn-script");if(btn){btn.disabled=false;btn.textContent="↺ Load from Google Sheet";}
   const status=document.getElementById("data-status");if(status)status.textContent="";
   const catSec=document.getElementById("cat-section");if(catSec)catSec.innerHTML="";
-  pendingRows=null;pendingCols=null;allOrders=[];activeOrders=[];countryMap={};
+  pendingRows=null;pendingCols=null;pendingStripeRows=null;allOrders=[];activeOrders=[];countryMap={};
   selCats=new Set(["digital","physical"]); userCatAssignments={};
   expanded=new Set(["UK","EU","ROW"]);drillOpen=new Set();
   const sb=document.getElementById("sumbar");if(sb)sb.innerHTML="";
@@ -1012,7 +1094,7 @@ function printAll(){
 
 function openPrintWindow(bodyHtml){
   const win=window.open('','_blank','width=900,height=700');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Revenue Analysis</title>
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Lumenate - Revenue Analysis</title>
   <style>
     body{font-family:'Georgia',serif;font-size:11pt;color:#000;padding:20pt 30pt;max-width:800pt;margin:0 auto}
     h1{font-style:italic;font-weight:normal;font-size:22pt;margin-bottom:4pt}
