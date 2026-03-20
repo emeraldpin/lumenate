@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revenue Analysis</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0d10;--s1:#13161b;--s2:#1a1e25;--s3:#22272f;
+  --b1:#252a33;--b2:#303849;--b3:#3d4757;
+  --t1:#dde2ea;--t2:#7e8fa0;--t3:#48566a;
+  --acc:#5ee7a0;--acc2:#1a3d2e;
+  --uk:#60a5fa;--ukb:#172540;
+  --eu:#fbbf24;--eub:#2e1f06;
+  --row:#c084fc;--rowb:#1f1035;
+  --red:#f87171;--redb:#2a1111;
+  --mono:'DM Mono',monospace;
+  --disp:'Playfair Display',serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:13px}
+body{background:var(--bg);color:var(--t1);font-family:var(--mono);min-height:100vh;line-height:1.5}
+
+/* ── LOAD SCREEN ── */
+/* load screen css removed */
+.sku-list{display:flex;flex-wrap:wrap;gap:6px;min-height:26px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 11px;border:1px solid var(--b2);border-radius:20px;font-size:11px;background:var(--s2);color:var(--t2);cursor:pointer;transition:all .15s;user-select:none}
+.chip.on{border-color:var(--acc);background:var(--acc2);color:var(--acc)}
+.chip .dot{width:5px;height:5px;border-radius:50%;background:var(--b3);transition:background .15s;flex-shrink:0}
+.chip.on .dot{background:var(--acc)}
+.chip-ph{font-size:11px;color:var(--t3);font-style:italic}
+.cat-row{display:flex;flex-direction:column;gap:6px}
+.cat-header{display:flex;align-items:center;gap:8px}
+.cat-toggle{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;border:1px solid var(--b2);background:var(--s2);font-size:11px;color:var(--t2);cursor:pointer;user-select:none;transition:all .15s}
+.cat-toggle.on{font-weight:500}
+.cat-toggle .cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cat-skus{display:flex;flex-wrap:wrap;gap:5px;padding-left:4px}
+.cat-sku-tag{font-size:10px;padding:2px 8px;border-radius:12px;background:var(--s3);color:var(--t3);border:1px solid var(--b1)}
+.unassigned-row{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--s2);border-radius:6px;border:1px solid var(--b2)}
+.unassigned-row .sku-name{font-size:11px;color:var(--t1);flex:1}
+.unassigned-row select{padding:4px 8px;background:var(--s3);border:1px solid var(--b2);border-radius:5px;color:var(--t1);font-family:var(--mono);font-size:11px;outline:none;cursor:pointer}
+.unassigned-row select:focus{border-color:var(--acc)}
+.row-btns{display:flex;gap:8px}
+.btn-sm{padding:6px 12px;border-radius:6px;border:1px solid var(--b2);background:var(--s3);color:var(--t2);cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .15s;flex-shrink:0}
+.btn-sm:hover{border-color:var(--acc);color:var(--acc)}
+.status{padding:9px 13px;border-radius:7px;font-size:11px;display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.status.loading{background:var(--s2);color:var(--eu);border:1px solid var(--b2)}
+.status.ok{background:#0f1f14;color:var(--acc);border:1px solid var(--acc2)}
+.status.err{background:var(--redb);color:var(--red);border:1px solid #4a1a1a}
+.status.info{background:var(--s2);color:var(--t2);border:1px solid var(--b1)}
+.spin{display:inline-block;width:10px;height:10px;border:2px solid var(--b3);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0;margin-top:1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-main{width:100%;padding:11px;border-radius:8px;border:none;background:var(--acc);color:#071a0f;font-family:var(--mono);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
+.btn-main:hover{background:#7df0b5}
+.btn-main:disabled{background:var(--s3);color:var(--t3);cursor:default}
+
+/* ── DATA PANEL ── */
+#data-panel{background:var(--s1);border-bottom:2px solid var(--b2);overflow:hidden;transition:max-height .3s ease;max-height:600px}
+#data-panel.collapsed{max-height:0}
+.dp-section{padding:12px 22px;border-bottom:1px solid var(--b1)}
+.dp-section:last-child{border-bottom:none}
+.dp-row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.dp-col{display:flex;flex-direction:column;gap:6px}
+.dp-lbl{font-size:10px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase}
+.dp-status{font-size:11px;color:var(--acc)}
+.dp-dropzone{border:1px dashed var(--b2);border-radius:6px;padding:7px 14px;cursor:pointer;position:relative;background:var(--s2);transition:all .15s;white-space:nowrap;font-size:11px;color:var(--t3)}
+.dp-dropzone:hover,.dp-dropzone.over{border-color:var(--acc);background:var(--acc2);color:var(--acc)}
+.dp-dropzone.loaded{border-color:var(--acc);background:var(--acc2);color:var(--acc)}
+.dp-dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+/* Category cards in data panel — horizontal layout */
+.cat-card{display:flex;flex-direction:column;gap:5px;padding:8px 12px;background:var(--s2);border:1px solid var(--b1);border-radius:8px;min-width:140px;max-width:200px}
+.cat-card .cat-toggle{justify-content:flex-start}
+.cat-card .cat-skus{flex-wrap:wrap}
+/* Keep old cat-row for compat */
+#app-screen{display:flex;flex-direction:column;min-height:100vh}
+.aph{background:var(--s1);border-bottom:1px solid var(--b1);padding:10px 22px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+.aph h1{font-family:var(--disp);font-size:1.3rem;font-weight:400;font-style:italic;color:var(--t1)}
+.aph h1 em{color:var(--acc)}
+.pill{font-size:10px;padding:2px 8px;border-radius:20px;background:var(--s3);border:1px solid var(--b2);color:var(--t2);white-space:nowrap}
+.pill.g{border-color:var(--acc2);background:var(--acc2);color:var(--acc)}
+.hsp{flex:1}
+.hbtn{padding:5px 11px;border-radius:6px;border:1px solid var(--b2);background:transparent;color:var(--t2);cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .15s}
+.hbtn:hover{border-color:var(--acc);color:var(--acc)}
+.hbtn.pri{background:var(--acc);color:#071a0f;border-color:var(--acc);font-weight:500}
+.hbtn.pri:hover{background:#7df0b5}
+.hsel{padding:5px 9px;border-radius:6px;border:1px solid var(--b2);background:var(--s2);color:var(--t1);font-family:var(--mono);font-size:11px;outline:none}
+
+/* Filter bar — month + SKU toggles inline */
+.filterbar{padding:9px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--b1);background:var(--s1)}
+.filterbar-sep{width:1px;height:18px;background:var(--b2);flex-shrink:0}
+.fblbl{font-size:10px;color:var(--t3);white-space:nowrap}
+.month-chip{display:inline-flex;align-items:center;padding:3px 10px;border:1px solid var(--b2);border-radius:20px;font-size:11px;background:var(--s2);color:var(--t2);cursor:pointer;transition:all .15s;user-select:none;white-space:nowrap}
+.month-chip.on{border-color:var(--uk);background:var(--ukb);color:var(--uk)}
+.sku-chip-app{display:inline-flex;align-items:center;padding:3px 10px;border:1px solid var(--b2);border-radius:20px;font-size:11px;background:var(--s2);color:var(--t2);cursor:pointer;transition:all .15s;user-select:none;white-space:nowrap}
+.sku-chip-app.on{border-color:var(--acc);background:var(--acc2);color:var(--acc)}
+
+.ctrlbar{padding:7px 22px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--b1)}
+.ctrlbar input,.ctrlbar select{padding:5px 9px;background:var(--s1);border:1px solid var(--b1);border-radius:6px;color:var(--t1);font-family:var(--mono);font-size:11px;outline:none}
+.ctrlbar input{width:165px}
+.ctrlbar input:focus,.ctrlbar select:focus{border-color:var(--b2)}
+.clbl{font-size:10px;color:var(--t3)}
+
+.sumbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--b1);border-bottom:1px solid var(--b1)}
+.scard{background:var(--s1);padding:12px 16px;position:relative;overflow:hidden}
+.scard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.scard.ctotal::before{background:var(--acc)}.scard.cvat::before{background:var(--eu)}
+.scard.cnet::before{background:var(--uk)}.scard.cuk::before{background:var(--uk)}
+.scard.ceu::before{background:var(--eu)}.scard.crow::before{background:var(--row)}
+.slbl{font-size:10px;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
+.sval{font-size:1.25rem;color:var(--t1);font-weight:300;line-height:1}
+.ssub{font-size:10px;color:var(--t3);margin-top:3px}
+
+.tblwrap{flex:1;overflow:auto;padding:0 22px 32px}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+thead th{background:var(--s1);color:var(--t3);font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:7px 9px;text-align:left;border-bottom:1px solid var(--b1);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0}
+thead th:hover{color:var(--t2)}
+thead th.r{text-align:right}
+.si{margin-left:3px;opacity:.4;font-size:9px}
+
+.rrow td{padding:8px 9px;background:var(--s1);border-top:1px solid var(--b1);border-bottom:1px solid var(--b1);cursor:pointer}
+.rrow:hover td{background:var(--s2)}
+.rlbl{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:500}
+.rdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.rmeta{font-size:10px;color:var(--t3);font-weight:400;margin-left:4px}
+.chv{display:inline-block;transition:transform .18s;font-size:9px;color:var(--t3)}
+.chv.o{transform:rotate(90deg)}
+.copy-btn{padding:3px 9px;border-radius:5px;border:1px solid var(--b2);background:var(--s3);color:var(--t3);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.copy-btn:hover{border-color:var(--acc);color:var(--acc);background:var(--acc2)}
+.copy-btn.copied{border-color:var(--acc);color:var(--acc);background:var(--acc2)}
+.print-btn{padding:3px 9px;border-radius:5px;border:1px solid var(--b2);background:var(--s3);color:var(--t3);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s;white-space:nowrap;margin-left:4px}
+.print-btn:hover{border-color:var(--uk);color:var(--uk);background:var(--ukb)}
+
+.crow td{padding:6px 9px;border-bottom:1px solid var(--b1);cursor:pointer;transition:background .1s}
+.crow:hover td{background:var(--s2)}.crow.dx td{background:var(--s1)}
+.cname{display:flex;align-items:center;gap:7px;padding-left:20px}
+.badge{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;letter-spacing:.03em}
+.buk{background:var(--ukb);color:var(--uk)}.beu{background:var(--eub);color:var(--eu)}
+.brow{background:var(--rowb);color:var(--row)}.bcurr{background:var(--s3);color:var(--t2)}
+.r{text-align:right}.tn{font-variant-numeric:tabular-nums}.dim{color:var(--t3)}.grn{color:var(--acc)}
+
+.dhead td{background:var(--s2);padding:5px 9px 5px 30px;border-bottom:1px solid var(--b1);font-size:9px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase}
+.drow td{padding:5px 9px 5px 30px;border-bottom:1px solid var(--b1);font-size:11px;background:var(--s2)}
+.drow:hover td{background:var(--s3)}.drow td.r{text-align:right}
+.rsub td{padding:7px 9px;border-top:1px solid var(--b2);border-bottom:1px solid var(--b1);font-size:11px;font-weight:500;background:var(--s1)}
+.grand td{padding:9px 9px;border-top:2px solid var(--b2);font-size:12px;font-weight:500;background:var(--s1);color:var(--acc)}
+
+.fxbar{border-top:1px solid var(--b1);background:var(--s1);cursor:pointer;padding:8px 22px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2);user-select:none}
+.fxbar:hover{color:var(--t1)}
+.fxwrap{background:var(--s2);border-top:1px solid var(--b1);overflow:hidden;max-height:0;transition:max-height .3s ease}
+.fxwrap.open{max-height:300px}
+.fxpanel{padding:14px 22px;display:flex;flex-wrap:wrap;gap:5px 20px;overflow-y:auto;max-height:280px}
+.fxrow{font-size:11px;display:flex;gap:8px}
+.fxrow .fc{color:var(--t3);width:30px}.fxrow .fr{color:var(--acc)}.fxrow .fd{color:var(--t3);font-size:10px}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+
+/* ── PRINT STYLES ── */
+@media print {
+  body { background: #fff !important; color: #000 !important; font-family: 'Georgia', serif; }
+  #load-screen, #app-screen > .aph, #app-screen > .filterbar,
+  #app-screen > .ctrlbar, #app-screen > .fxbar, #app-screen > .fxwrap,
+  .hbtn, .copy-btn, .print-btn, .chv, .dhead, .drow, .rsub { display: none !important; }
+  .sumbar { display: none !important; }
+  #app-screen { display: block !important; }
+  .tblwrap { padding: 0; overflow: visible; }
+  table { font-size: 11pt; }
+  .print-region { page-break-after: always; margin-bottom: 32pt; }
+  .print-region:last-child { page-break-after: avoid; }
+  .print-region-title { font-family: 'Georgia', serif; font-size: 16pt; font-style: italic; font-weight: normal; margin-bottom: 6pt; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 6pt; }
+  .print-region-meta { font-size: 9pt; color: #666; margin-bottom: 12pt; }
+  .print-table { width: 100%; border-collapse: collapse; }
+  .print-table th { background: #f0f0f0; border: 1px solid #ccc; padding: 6pt 8pt; font-size: 9pt; text-align: left; font-weight: bold; }
+  .print-table th.r { text-align: right; }
+  .print-table td { border: 1px solid #ddd; padding: 5pt 8pt; font-size: 10pt; }
+  .print-table td.r { text-align: right; }
+  .print-table tr.total-row td { font-weight: bold; background: #f8f8f8; border-top: 2px solid #999; }
+  .print-header { margin-bottom: 20pt; }
+  .print-header h1 { font-family: 'Georgia', serif; font-size: 22pt; font-style: italic; font-weight: normal; }
+  .print-header p { font-size: 10pt; color: #555; margin-top: 4pt; }
+}
+</style>
+</head>
+<body>
+
+<!-- load screen removed -->
+
+<!-- ── APP SCREEN ── -->
+<div id="app-screen">
+  <!-- Header -->
+  <div class="aph">
+    <h1>Revenue <em>Analysis</em></h1>
+    <div class="hsp"></div>
+    <select class="hsel" id="disp-curr" onchange="applyFilters()"><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option></select>
+    <select class="hsel" id="view-mode" onchange="renderTable()"><option value="grouped">Grouped</option><option value="flat">Flat</option></select>
+    <button class="hbtn pri" onclick="exportExcel()">⬇ Export Excel</button>
+    <button class="hbtn" onclick="printAll()">🖨 Print</button>
+    <button class="hbtn" id="btn-data-toggle" onclick="toggleDataPanel()">📥 Data ▾</button>
+  </div>
+
+  <!-- Collapsible data + SKU panel -->
+  <div id="data-panel">
+    <!-- Data source row -->
+    <div class="dp-section">
+      <div class="dp-row">
+        <div class="dp-col" style="flex:1">
+          <span class="dp-lbl">Data source</span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="hbtn pri" id="btn-script" onclick="loadFromScript()" style="white-space:nowrap">↺ Load from Google Sheet</button>
+            <span id="data-status" class="dp-status"></span>
+          </div>
+        </div>
+        <div class="dp-col" style="flex:0 0 auto">
+          <span class="dp-lbl">or upload CSV / Excel</span>
+          <div class="dp-dropzone" id="dropzone">
+            <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+            <span id="dz-label">📂 Drop file or click</span>
+          </div>
+        </div>
+      </div>
+      <div class="status err" id="err-box" style="display:none;margin-top:8px"></div>
+    </div>
+    <!-- SKU categories -->
+    <div class="dp-section" id="sku-panel-section">
+      <span class="dp-lbl" style="margin-bottom:8px;display:block">SKU categories</span>
+      <div id="cat-section" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start"></div>
+      <div id="unassigned-section" style="display:none;margin-top:10px">
+        <div style="font-size:10px;color:var(--eu);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px">⚠ New SKUs — assign a category</div>
+        <div id="unassigned-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Month + SKU filter bar -->
+  <div class="filterbar" id="filterbar">
+    <span class="fblbl">Month</span>
+    <div id="month-chips" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+    <div class="filterbar-sep"></div>
+    <span class="fblbl">SKU</span>
+    <div id="sku-chips-app" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+    <div class="hsp"></div>
+    <span class="clbl" id="ord-count"></span>
+  </div>
+
+  <!-- Search + region filter -->
+  <div class="ctrlbar">
+    <span class="clbl">Filter</span>
+    <input type="text" id="search" placeholder="Country…" oninput="renderTable()">
+    <select id="filter-region" onchange="renderTable()">
+      <option value="">All regions</option><option value="UK">UK</option>
+      <option value="EU">EU</option><option value="ROW">ROW</option>
+    </select>
+  </div>
+
+  <div class="sumbar" id="sumbar"></div>
+
+  <div class="tblwrap">
+    <table>
+      <thead><tr>
+        <th style="width:200px" onclick="sortBy('name')">Country<span class="si" id="sn"></span></th>
+        <th style="width:48px">Region</th>
+        <th style="width:56px" class="r" onclick="sortBy('orders')">Orders<span class="si" id="so"></span></th>
+        <th style="width:54px" class="r">VAT %</th>
+        <th style="width:110px" class="r" onclick="sortBy('gross')">Gross<span class="si" id="sg"></span></th>
+        <th style="width:110px" class="r" onclick="sortBy('vat')">VAT<span class="si" id="sv"></span></th>
+        <th style="width:110px" class="r" onclick="sortBy('net')">Net<span class="si" id="snet"></span></th>
+        <th style="width:80px" class="r"></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="fxbar" onclick="toggleFX()">
+    <span>📈</span><span id="fx-bar-lbl">Show FX rates used</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--t3)" id="fx-bar-src"></span>
+  </div>
+  <div class="fxwrap" id="fxwrap"><div class="fxpanel" id="fxpanel"></div></div>
+</div>
+
+<!-- Hidden print container -->
+<div id="print-container" style="display:none"></div>
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────────
+const VAT={GB:20,AT:20,BE:21,BG:20,HR:25,CY:19,CZ:21,DK:25,EE:24,FI:25.5,FR:20,DE:19,GR:24,HU:27,IE:23,IT:22,LV:21,LT:21,LU:17,MT:18,NL:21,PL:23,PT:23,RO:21,SK:23,SI:22,ES:21,SE:25};
+const CNAMES={GB:'United Kingdom',AT:'Austria',BE:'Belgium',BG:'Bulgaria',HR:'Croatia',CY:'Cyprus',CZ:'Czech Republic',DK:'Denmark',EE:'Estonia',FI:'Finland',FR:'France',DE:'Germany',GR:'Greece',HU:'Hungary',IE:'Ireland',IT:'Italy',LV:'Latvia',LT:'Lithuania',LU:'Luxembourg',MT:'Malta',NL:'Netherlands',PL:'Poland',PT:'Portugal',RO:'Romania',SK:'Slovakia',SI:'Slovenia',ES:'Spain',SE:'Sweden',US:'United States',CA:'Canada',AU:'Australia',NZ:'New Zealand',ZA:'South Africa',SG:'Singapore',JP:'Japan',CH:'Switzerland',NO:'Norway',IN:'India',BR:'Brazil',MX:'Mexico',AE:'UAE'};
+const EU=new Set(['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE']);
+const UK=new Set(['GB']);
+
+// ── STATE ──────────────────────────────────────────────────────
+let fxByDate={},fxDates=[],fxSource='';
+let allOrders=[],countryMap={},allSKUs=[],selSKUs=new Set();
+let allMonths=[],selMonths=new Set(); // month filter state
+let activeOrders=[]; // orders after month+sku filter
+let pendingRows=null,pendingCols=null,monthRange=null;
+let sortKey='gross',sortDir=-1;
+let expanded=new Set(['UK','EU','ROW']),drillOpen=new Set(),fxOpen=false;
+const FX_CURRS=['USD','EUR','AUD','CAD','NZD','CHF','JPY','SGD','NOK','SEK','DKK','PLN','CZK','HUF'];
+
+// ── HELPERS ─────────────────────────────────────────────────────
+function fetchT(url,ms){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t));}
+function showErr(msg){const e=document.getElementById('err-box');if(!e)return;e.style.display=msg?'flex':'none';e.textContent=msg?'⚠ '+msg:'';}
+function setFXStatus(type,msg){const e=document.getElementById('fx-status');if(!e)return;e.className='status '+type;e.style.cssText='flex:1;padding:6px 10px;font-size:11px';e.innerHTML=type==='loading'?`<span class="spin"></span>${msg}`:msg;}
+
+// ── FX ──────────────────────────────────────────────────────────
+async function fetchFXForRange(start,end){
+  setFXStatus('loading',`Fetching daily FX rates ${start} → ${end}…`);
+  const url=`https://api.frankfurter.app/${start}..${end}?from=GBP&to=${FX_CURRS.join(',')}`;
+  const r=await fetchT(url,12000);
+  if(!r.ok) throw new Error(`FX fetch failed: HTTP ${r.status}`);
+  const json=await r.json();
+  fxByDate=json.rates||{};
+  if(json.date&&!Object.keys(fxByDate).length) fxByDate={[json.date]:json.rates||{}};
+  fxDates=Object.keys(fxByDate).sort();
+  fxSource=`frankfurter.app (ECB) · ${start} → ${end} · ${fxDates.length} trading days`;
+  setFXStatus('ok',`✓ FX rates loaded · ${fxDates.length} trading days · ECB via frankfurter.app`);
+}
+function getRateForDate(date,toCurr){
+  if(toCurr==='GBP') return 1;
+  const d=normaliseDate(date); if(!d) return getLatestRate(toCurr);
+  for(let i=0;i<7;i++){const dt=offsetDate(d,-i);if(fxByDate[dt]?.[toCurr])return fxByDate[dt][toCurr];}
+  return getLatestRate(toCurr);
+}
+function getLatestRate(c){if(!fxDates.length)return 1;return fxByDate[fxDates[fxDates.length-1]]?.[c]||1;}
+function toGBP(curr,amt,date){
+  if(curr==='GBP')return{gbp:amt,rate:1,rateDesc:'GBP'};
+  const r=getRateForDate(date,curr);
+  return{gbp:amt/r,rate:r,rateDesc:`1 GBP = ${r.toFixed(4)} ${curr}`};
+}
+function toDisp(gbp){
+  if((document.getElementById('disp-curr')?.value||'GBP')==='GBP')return gbp;
+  return gbp*(getLatestRate('EUR')||1);
+}
+function sym(){return(document.getElementById('disp-curr')?.value||'GBP')==='GBP'?'£':'€';}
+function fmt(n){return sym()+toDisp(n).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtN(n){return n.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function vr(cc){return(VAT[cc]||0)/100;}
+function rgn(cc){return UK.has(cc)?'UK':EU.has(cc)?'EU':'ROW';}
+function normaliseDate(raw){
+  if(!raw)return null;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw))return raw;
+  const m1=raw.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if(m1){const mo={Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};return mo[m1[2]]?`${m1[3]}-${mo[m1[2]]}-${m1[1].padStart(2,'0')}`:null;}
+  const m2=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m2)return`${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`;
+  const d=new Date(raw);return isNaN(d)?null:d.toISOString().slice(0,10);
+}
+function offsetDate(s,d){const dt=new Date(s);dt.setDate(dt.getDate()+d);return dt.toISOString().slice(0,10);}
+function fmtDate(raw){
+  const d=normaliseDate(raw);if(!d)return raw||'';
+  const dt=new Date(d+'T00:00:00');
+  return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+}
+function dateToMonthKey(raw){
+  const d=normaliseDate(raw);if(!d)return null;
+  return d.slice(0,7); // YYYY-MM
+}
+function monthKeyToLabel(k){
+  if(!k)return '';
+  const[y,m]=k.split('-');
+  const names=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return`${names[parseInt(m)]} ${y}`;
+}
+
+// ── COLUMN DETECTION ────────────────────────────────────────────
+function normH(h){return h.toLowerCase().replace(/[\s_\-]+/g,'');}
+function findCol(sample,cands){
+  const keys=Object.keys(sample);
+  for(const c of cands){const f=keys.find(k=>normH(k)===normH(c));if(f)return f;}
+  for(const c of cands){const f=keys.find(k=>normH(k).startsWith(normH(c).slice(0,5)));if(f)return f;}
+  return null;
+}
+function detectCols(sample){
+  const cols={
+    sku:   findCol(sample,['SKU','sku']),
+    date:  findCol(sample,['Date Paid','DatePaid','Date']),
+    ship:  findCol(sample,['Shipping Country','ShippingCountry','Ship Country']),
+    curr:  findCol(sample,['Order Currency','Currency']),
+    itemTotal: findCol(sample,['Item Total','ItemTotal']),
+    itemTax:   findCol(sample,['Item Tax Amount','ItemTaxAmount','item_tax_amount','Item Tax']),
+    shipping:  findCol(sample,['Shipping Cost','ShippingCost','shipping_cost']),
+    shippingTax: findCol(sample,['Shipping Tax Amount','ShippingTaxAmount','shipping_tax_amount','Shipping Tax']),
+    oid:   findCol(sample,['Order ID','OrderID','order_id']),
+  };
+  // Legacy fallback: if no itemTotal found, try generic Amount/Gross
+  if(!cols.itemTotal) cols.itemTotal=findCol(sample,['Gross','Amount']);
+  const miss=['sku','ship','curr','itemTotal','oid'].filter(k=>!cols[k]);
+  if(miss.length)throw new Error(`Missing columns: ${miss.join(', ')}\nFound: ${Object.keys(sample).join(', ')}`);
+  return cols;
+}
+
+// ── CSV PARSE ───────────────────────────────────────────────────
+function parseCSV(text){
+  const lines=text.trim().split('\n');
+  function splitRow(row){const res=[];let cur='',inQ=false;for(const ch of row){if(ch==='"')inQ=!inQ;else if(ch===','&&!inQ){res.push(cur.trim());cur='';}else cur+=ch;}res.push(cur.trim());return res;}
+  const headers=splitRow(lines[0]);
+  return lines.slice(1).map(l=>{const v=splitRow(l);const o={};headers.forEach((h,i)=>o[h]=(v[i]||'').trim());return o;}).filter(r=>Object.values(r).some(v=>v));
+}
+
+// ── INGEST ──────────────────────────────────────────────────────
+function ingestRows(rows){
+  if(!rows.length)throw new Error('No data rows found');
+  const cols=detectCols(rows[0]);
+  const skuSet=new Set(),monthSet=new Set(),dates=[];
+  rows.forEach(r=>{
+    const sk=(r[cols.sku]||'').trim();if(sk)skuSet.add(sk);
+    const d=normaliseDate((r[cols.date]||'').trim());
+    if(d){dates.push(d);const mk=d.slice(0,7);if(mk)monthSet.add(mk);}
+  });
+  dates.sort();
+  pendingRows=rows;pendingCols=cols;
+  monthRange={start:dates[0]||null,end:dates[dates.length-1]||null};
+  allMonths=[...monthSet].sort();
+  selMonths=new Set(allMonths);
+  buildChips([...skuSet].sort());
+  unlockSKUCard();
+}
+
+// selCats: which categories are toggled on for analysis
+let selCats = new Set(['digital','physical']); // free excluded by default
+
+function buildChips(skus){
+  allSKUs = skus;
+  const unassigned = skus.filter(s => !getCatForSKU(s) && !userCatAssignments[s]);
+  const catSection = document.getElementById('cat-section');
+  catSection.innerHTML = '';
+
+  for(const [cat, def] of Object.entries(SKU_CATEGORIES)){
+    const present = def.skus.filter(s => skus.includes(s));
+    if(!present.length) continue;
+    const isOn = selCats.has(cat);
+    const isRevenue = REVENUE_CATS.has(cat);
+    const card = document.createElement('div');
+    card.className = 'cat-card';
+    card.innerHTML = `
+      <div class="cat-toggle${isOn?' on':''}" data-cat="${cat}" onclick="toggleCat('${cat}',this)"
+        style="${isOn?`border-color:${def.color};background:${def.bg};color:${def.color}`:''}">
+        <span class="cat-dot" style="background:${isOn?def.color:'var(--b3)'}"></span>
+        ${def.label}${!isRevenue?'<span style="font-size:9px;opacity:.6;margin-left:3px">(excluded)</span>':''}
+      </div>
+      <div class="cat-skus">${present.map(s=>`<span class="cat-sku-tag">${s}</span>`).join('')}</div>`;
+    catSection.appendChild(card);
+  }
+
+  const unassignedSection = document.getElementById('unassigned-section');
+  const unassignedList = document.getElementById('unassigned-list');
+  unassignedList.innerHTML = '';
+  if(unassigned.length){
+    unassignedSection.style.display = 'block';
+    unassigned.forEach(sku => {
+      const row = document.createElement('div');
+      row.className = 'unassigned-row';
+      row.innerHTML = `<span class="sku-name">${sku}</span>
+        <select onchange="assignSKU('${sku}',this.value)">
+          <option value="">Assign category…</option>
+          <option value="digital">Digital (included)</option>
+          <option value="physical">Physical (included)</option>
+          <option value="free">Free item (excluded)</option>
+        </select>`;
+      unassignedList.appendChild(row);
+    });
+  } else {
+    unassignedSection.style.display = 'none';
+  }
+
+  // Analyse button
+  let analyseRow = document.getElementById('analyse-row');
+  if(!analyseRow){
+    analyseRow = document.createElement('div');
+    analyseRow.id = 'analyse-row';
+    analyseRow.style.cssText = 'display:flex;gap:10px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--b1);flex-wrap:wrap';
+    analyseRow.innerHTML = '<button class="hbtn pri" id="btn-analyse" onclick="doAnalyse()" style="padding:8px 22px">Fetch FX &amp; Analyse \u2192</button><span id="fx-status" class="status info" style="flex:1;padding:6px 10px;font-size:11px"></span>';
+    document.getElementById('sku-panel-section').appendChild(analyseRow);
+  }
+  const errBox = document.getElementById('err-box');
+  if(!errBox){
+    const eb = document.createElement('div');
+    eb.id = 'err-box'; eb.className = 'status err'; eb.style.display = 'none';
+    eb.style.marginTop = '6px';
+    document.getElementById('sku-panel-section').appendChild(eb);
+  }
+  refreshSelSKUs();
+  unlockSKUCard();
+}
+
+function toggleCat(cat, el){
+  const def = SKU_CATEGORIES[cat]; if(!def) return;
+  if(selCats.has(cat)) selCats.delete(cat); else selCats.add(cat);
+  const isOn = selCats.has(cat);
+  el.classList.toggle('on', isOn);
+  el.style.borderColor = isOn ? def.color : ''; el.style.background = isOn ? def.bg : ''; el.style.color = isOn ? def.color : '';
+  el.querySelector('.cat-dot').style.background = isOn ? def.color : 'var(--b3)';
+  refreshSelSKUs();
+}
+
+function assignSKU(sku, cat){
+  if(!cat){ delete userCatAssignments[sku]; return; }
+  userCatAssignments[sku] = cat;
+  if(cat === 'digital')  SKU_WITH_SHIPPING.add(sku);
+  if(cat === 'physical') SKU_ITEM_ONLY.add(sku);
+  refreshSelSKUs();
+  if(document.getElementById('app-screen').style.display !== 'none'){
+    allOrders = buildAllOrders(); applyFilters(); buildSKUChipsApp();
+  }
+}
+
+function refreshSelSKUs(){
+  selSKUs = new Set();
+  allSKUs.forEach(s => {
+    const cat = getCatForSKU(s) || userCatAssignments[s];
+    if(cat && selCats.has(cat) && REVENUE_CATS.has(cat)) selSKUs.add(s);
+  });
+}
+
+function selectAllSKUs(){ selCats = new Set(Object.keys(SKU_CATEGORIES)); buildChips(allSKUs); }
+function clearSKUs(){ selCats = new Set(); buildChips(allSKUs); }
+function unlockSKUCard(){ /* panel always visible in new layout */ }
+
+// ── LOAD PATHS ──────────────────────────────────────────────────
+const SCRIPT_URL='https://script.google.com/macros/s/AKfycbygAPYndxOJgKcBPY1mDzC0f_Fcy3WBC0lsPD7nMZZREorE4SEHrF-Tjl1WXgvAi-hukQ/exec';
+
+async function loadFromScript(){
+  showErr('');
+  const btn=document.getElementById('btn-script');
+  const status=document.getElementById('data-status');
+  btn.disabled=true; btn.textContent='Loading…';
+  if(status){status.textContent=''; status.style.color='var(--eu)';}
+  try{
+    const r=await fetchT(SCRIPT_URL,15000);
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const json=await r.json();
+    if(!json.ok)throw new Error(json.error||'Script returned an error');
+    ingestRows(json.rows);
+    btn.textContent='↺ Reload from Google Sheet'; btn.disabled=false;
+    if(status){status.textContent='✓ Loaded'; status.style.color='var(--acc)';}
+  }catch(e){
+    showErr(`Failed to load: ${e.message}`);
+    btn.disabled=false; btn.textContent='↺ Load from Google Sheet';
+  }
+}
+function handleFile(file){
+  showErr('');
+  const ext=file.name.split('.').pop().toLowerCase();
+  if(ext==='csv'){const fr=new FileReader();fr.onload=e=>{try{ingestRows(parseCSV(e.target.result));markDropzone(file.name);}catch(err){showErr(err.message);}};fr.readAsText(file);}
+  else if(['xlsx','xls'].includes(ext)){const fr=new FileReader();fr.onload=e=>{try{const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const csv=XLSX.utils.sheet_to_csv(ws);ingestRows(parseCSV(csv));markDropzone(file.name);}catch(err){showErr(err.message);}};fr.readAsArrayBuffer(file);}
+  else showErr('Please upload a CSV or Excel file');
+}
+function markDropzone(name){const dz=document.getElementById('dropzone');if(dz)dz.classList.add('loaded');const lbl=document.getElementById('dz-label');if(lbl)lbl.textContent='✓ '+name;}
+
+// ── ANALYSE ─────────────────────────────────────────────────────
+async function doAnalyse(){
+  showErr('');
+  const btn=document.getElementById('btn-analyse');
+  btn.disabled=true;btn.textContent='Fetching FX rates…';
+  try{
+    if(!pendingRows)throw new Error('Load data first');
+    refreshSelSKUs();
+    if(!selSKUs.size)throw new Error('Select at least one category to include');
+    const{start,end}=monthRange||{};
+    if(start&&end)await fetchFXForRange(start,end);
+    allOrders=buildAllOrders();
+    applyFilters();
+    buildMonthChips();
+    buildSKUChipsApp();
+    buildFXPanel();
+    collapseDataPanel();
+  }catch(e){showErr(e.message);btn.disabled=false;btn.textContent='Fetch FX & Analyse →';}
+}
+
+// ── SKU CATEGORIES ────────────────────────────────────────────────
+// Edit these defaults freely. New SKUs detected in your sheet that
+// don't appear here will be placed in 'unassigned' and shown with
+// an assign dropdown so you can categorise them.
+const SKU_CATEGORIES = {
+  digital:  { label:'Digital',    color:'var(--acc)',  bg:'var(--acc2)',  skus:['LUM-NOVA-001'] },
+  physical: { label:'Physical',   color:'var(--eu)',   bg:'var(--eub)',   skus:['LUM-1Y-ACCESS-6000'] },
+  free:     { label:'Free items', color:'var(--t3)',   bg:'var(--s3)',    skus:['LUM-FACE-PAD','LUM-MODULE','LUM-FABRIC-MASK','LUM-PACKAGING','LUM-USB','LUM-COTTON-BAG'] },
+};
+// Categories that are included in revenue analysis (free is excluded)
+const REVENUE_CATS = new Set(['digital','physical']);
+
+// Derive PAID_SKUS and type sets from category config
+function getCatForSKU(sku){
+  for(const[cat,def] of Object.entries(SKU_CATEGORIES)){if(def.skus.includes(sku))return cat;}
+  return null; // unassigned
+}
+function getPaidSKUs(extraCats={}){
+  // extraCats: { sku: 'digital'|'physical'|'free' } for user-assigned new SKUs
+  const paid=new Set();
+  for(const[cat,def] of Object.entries(SKU_CATEGORIES)){
+    if(REVENUE_CATS.has(cat)) def.skus.forEach(s=>paid.add(s));
+  }
+  for(const[sku,cat] of Object.entries(extraCats)){
+    if(REVENUE_CATS.has(cat)) paid.add(sku);
+  }
+  return paid;
+}
+
+// Per-SKU calculation type (used in calcAmounts)
+const SKU_WITH_SHIPPING = new Set(['LUM-NOVA-001']); // net = ItemTotal + ShippingCost
+const SKU_ITEM_ONLY     = new Set(['LUM-1Y-ACCESS-6000']); // net = ItemTotal only
+
+// Runtime state for user-assigned new SKUs
+let userCatAssignments = {}; // { sku: 'digital'|'physical'|'free' }
+
+function parseNum(v){ return parseFloat((v||'0').toString().replace(/[^0-9.\-]/g,''))||0; }
+
+function calcAmounts(sku, cc, r, cols){
+  const isEUorUK = UK.has(cc) || EU.has(cc);
+  const itemTotal   = parseNum(r[cols.itemTotal]);
+  const itemTax     = parseNum(r[cols.itemTax]);
+  const shippingCost= cols.shipping    ? parseNum(r[cols.shipping])    : 0;
+  const shippingTax = cols.shippingTax ? parseNum(r[cols.shippingTax]) : 0;
+  const vatPct      = (VAT[cc]||0) / 100;
+
+  if(isEUorUK){
+    // EU/UK: we know the VAT rate, so we calculate from net
+    let net;
+    if(SKU_WITH_SHIPPING.has(sku)){
+      net = itemTotal + shippingCost;          // Item Total + Shipping Cost
+    } else {
+      net = itemTotal;                          // Item Total only
+    }
+    const vat   = net * vatPct;
+    const gross = net + vat;
+    return { gross, net, vat, calcMethod: 'eu_uk' };
+  } else {
+    // ROW: use actual tax amounts from the sheet
+    let gross;
+    if(SKU_WITH_SHIPPING.has(sku)){
+      gross = itemTotal + itemTax + shippingCost + shippingTax;
+    } else {
+      gross = itemTotal + itemTax;
+    }
+    const vat = itemTax + shippingTax;         // actual tax from sheet
+    const net = gross - vat;
+    return { gross, net, vat, calcMethod: 'row' };
+  }
+}
+
+function buildAllOrders(){
+  const{rows,cols}={rows:pendingRows,cols:pendingCols};
+  const orders=[];
+  rows.forEach(r=>{
+    const sku=(r[cols.sku]||'').trim();
+    if(!selSKUs.has(sku)) return; // not in active paid categories
+    const cc  =(r[cols.ship]||'').trim().toUpperCase();
+    const curr=(r[cols.curr]||'').trim().toUpperCase();
+    const oid =(r[cols.oid]||'').trim();
+    const date=(r[cols.date]||'').trim();
+    if(!cc) return;
+
+    const {gross, net, vat, calcMethod} = calcAmounts(sku, cc, r, cols);
+    if(isNaN(gross)||gross<=0) return;
+
+    // Convert gross to GBP using per-order FX rate
+    const{gbp:grossGBP, rate, rateDesc} = toGBP(curr, gross, date);
+    // net and vat in GBP (same rate)
+    const fxRate = rate||1;
+    const netGBP = curr==='GBP' ? net  : net  / fxRate;
+    const vatGBP = curr==='GBP' ? vat  : vat  / fxRate;
+    const monthKey = dateToMonthKey(date)||'';
+
+    orders.push({cc, curr, gross, net, vat, grossGBP, netGBP, vatGBP, rate, rateDesc, oid, date, sku, monthKey, calcMethod});
+  });
+  if(!orders.length) throw new Error(`No orders found for selected SKUs: ${[...selSKUs].join(', ')}`);
+  return orders;
+}
+
+// ── MONTH + SKU FILTER CHIPS (in-app) ────────────────────────────
+function buildMonthChips(){
+  const container=document.getElementById('month-chips');
+  container.innerHTML='';
+  allMonths.forEach(mk=>{
+    const c=document.createElement('div');
+    c.className='month-chip'+(selMonths.has(mk)?' on':'');
+    c.textContent=monthKeyToLabel(mk);
+    c.onclick=()=>{
+      if(selMonths.has(mk)){if(selMonths.size>1)selMonths.delete(mk);}else selMonths.add(mk);
+      c.classList.toggle('on',selMonths.has(mk));
+      applyFilters();
+    };
+    container.appendChild(c);
+  });
+}
+
+function buildSKUChipsApp(){
+  const container = document.getElementById('sku-chips-app');
+  container.innerHTML = '';
+  // Show category-level toggles in the app bar
+  for(const [cat, def] of Object.entries(SKU_CATEGORIES)){
+    const present = allSKUs.filter(s => (getCatForSKU(s)||userCatAssignments[s]) === cat);
+    if(!present.length || !REVENUE_CATS.has(cat)) continue;
+    const isOn = selCats.has(cat);
+    const c = document.createElement('div');
+    c.className = 'sku-chip-app' + (isOn ? ' on' : '');
+    c.style.cssText = isOn ? `border-color:${def.color};background:${def.bg};color:${def.color}` : '';
+    c.innerHTML = `<span style="width:5px;height:5px;border-radius:50%;background:${isOn?def.color:'var(--b3)'}; display:inline-block;margin-right:4px;flex-shrink:0"></span>${def.label}`;
+    c.onclick = () => {
+      if(selCats.has(cat)) { if(selCats.size > 1) selCats.delete(cat); }
+      else selCats.add(cat);
+      refreshSelSKUs();
+      allOrders = buildAllOrders();
+      applyFilters();
+      buildSKUChipsApp(); // re-render chips
+    };
+    container.appendChild(c);
+  }
+}
+
+// Apply month + sku filter → rebuild countryMap → render
+function applyFilters(){
+  activeOrders=allOrders.filter(o=>selMonths.has(o.monthKey));
+  if(!activeOrders.length){
+    // show empty state
+    document.getElementById('ord-count').textContent='No orders match filter';
+    document.getElementById('sumbar').innerHTML='';
+    document.getElementById('tbody').innerHTML=`<tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--t3)">No orders for selected months/SKUs</td></tr>`;
+    return;
+  }
+  // Aggregate
+  const map={};
+  activeOrders.forEach(o=>{
+    if(!map[o.cc])map[o.cc]={orders:[],grossGBP:0,netGBP:0,vatGBP:0};
+    map[o.cc].orders.push(o);
+    map[o.cc].grossGBP+=o.grossGBP;
+    map[o.cc].netGBP  +=o.netGBP;
+    map[o.cc].vatGBP  +=o.vatGBP;
+  });
+  countryMap=map;
+  // Month label for header
+  const sortedMo=[...selMonths].sort();
+  const labels=sortedMo.map(monthKeyToLabel);
+  const monthLabel=labels.length===1?labels[0]:labels.length===allMonths.length?`${labels[0]} – ${labels[labels.length-1]}`:`${labels[0]} + ${labels.length-1} more`;
+  document.getElementById('ord-count').textContent=`${activeOrders.length.toLocaleString()} orders · ${Object.keys(map).length} countries · ${monthLabel}`;
+  renderTable();
+}
+
+function resetApp(){
+  const dz=document.getElementById("dropzone");
+  if(dz){dz.classList.remove("loaded");}
+  const lbl=document.getElementById("dz-label");if(lbl)lbl.textContent="📂 Drop file or click";
+  const btn=document.getElementById("btn-script");if(btn){btn.disabled=false;btn.textContent="↺ Load from Google Sheet";}
+  const status=document.getElementById("data-status");if(status)status.textContent="";
+  const catSec=document.getElementById("cat-section");if(catSec)catSec.innerHTML="";
+  pendingRows=null;pendingCols=null;allOrders=[];activeOrders=[];countryMap={};
+  selCats=new Set(["digital","physical"]); userCatAssignments={};
+  expanded=new Set(["UK","EU","ROW"]);drillOpen=new Set();
+  const sb=document.getElementById("sumbar");if(sb)sb.innerHTML="";
+  const tb=document.getElementById("tbody");if(tb)tb.innerHTML="";
+  const oc=document.getElementById("ord-count");if(oc)oc.textContent="";
+  const mc=document.getElementById("month-chips");if(mc)mc.innerHTML="";
+  const sc=document.getElementById("sku-chips-app");if(sc)sc.innerHTML="";
+  expandDataPanel();
+}
+
+
+
+// ── DATA PANEL ──────────────────────────────────────────────────
+let dataPanelOpen = true;
+function toggleDataPanel(){ dataPanelOpen ? collapseDataPanel() : expandDataPanel(); }
+function collapseDataPanel(){
+  dataPanelOpen = false;
+  const p = document.getElementById('data-panel'); if(p) p.classList.add('collapsed');
+  const b = document.getElementById('btn-data-toggle'); if(b) b.textContent = '📥 Data ▸';
+}
+function expandDataPanel(){
+  dataPanelOpen = true;
+  const p = document.getElementById('data-panel'); if(p) p.classList.remove('collapsed');
+  const b = document.getElementById('btn-data-toggle'); if(b) b.textContent = '📥 Data ▾';
+}
+
+// ── FX PANEL ────────────────────────────────────────────────────
+function buildFXPanel(){
+  document.getElementById('fx-bar-src').textContent=fxSource;
+  const ranges={};
+  Object.entries(fxByDate).forEach(([,rates])=>{Object.entries(rates).forEach(([c,r])=>{if(!ranges[c])ranges[c]={min:r,max:r,n:0};ranges[c].min=Math.min(ranges[c].min,r);ranges[c].max=Math.max(ranges[c].max,r);ranges[c].n++;});});
+  const hdr=`<div style="width:100%;font-size:10px;color:var(--t3);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--b1)">${fxSource} · Each order uses the ECB rate for its Date Paid (prev trading day for weekends/holidays)</div>`;
+  const rows=Object.entries(ranges).sort((a,b)=>a[0].localeCompare(b[0])).map(([c,d])=>{const same=Math.abs(d.max-d.min)<0.0001;const rs=same?d.min.toFixed(4):`${d.min.toFixed(4)} – ${d.max.toFixed(4)}`;return`<div class="fxrow"><span class="fc">${c}</span><span class="fr">1 GBP = ${rs} ${c}</span><span class="fd">${d.n}d</span></div>`;}).join('');
+  document.getElementById('fxpanel').innerHTML=hdr+rows;
+}
+function toggleFX(){fxOpen=!fxOpen;document.getElementById('fxwrap').classList.toggle('open',fxOpen);document.getElementById('fx-bar-lbl').textContent=fxOpen?'Hide FX rates':'Show FX rates used';}
+
+// ── RENDER ───────────────────────────────────────────────────────
+function renderSummary(entries){
+  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0);
+  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0);
+  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0);
+  const tO=entries.reduce((s,[,d])=>s+d.orders.length,0);
+  const ukG=entries.filter(([cc])=>rgn(cc)==='UK').reduce((s,[,d])=>s+d.grossGBP,0);
+  const euG=entries.filter(([cc])=>rgn(cc)==='EU').reduce((s,[,d])=>s+d.grossGBP,0);
+  const rwG=entries.filter(([cc])=>rgn(cc)==='ROW').reduce((s,[,d])=>s+d.grossGBP,0);
+  document.getElementById('sumbar').innerHTML=`
+    <div class="scard ctotal"><div class="slbl">Gross Revenue</div><div class="sval">${fmt(tG)}</div><div class="ssub">${tO.toLocaleString()} orders</div></div>
+    <div class="scard cvat"><div class="slbl">VAT</div><div class="sval">${fmt(tV)}</div><div class="ssub">UK/EU: calculated · ROW: from sheet</div></div>
+    <div class="scard cnet"><div class="slbl">Net Revenue</div><div class="sval">${fmt(tN)}</div><div class="ssub">Ex-VAT/tax</div></div>
+    <div class="scard cuk"><div class="slbl">🇬🇧 United Kingdom</div><div class="sval">${fmt(ukG)}</div><div class="ssub">${tG?(ukG/tG*100).toFixed(1):0}%</div></div>
+    <div class="scard ceu"><div class="slbl">🌍 European Union</div><div class="sval">${fmt(euG)}</div><div class="ssub">${tG?(euG/tG*100).toFixed(1):0}%</div></div>
+    <div class="scard crow"><div class="slbl">🌐 Rest of World</div><div class="sval">${fmt(rwG)}</div><div class="ssub">${tG?(rwG/tG*100).toFixed(1):0}%</div></div>`;
+}
+
+function renderTable(){
+  if(!countryMap||!Object.keys(countryMap).length)return;
+  const srch=(document.getElementById('search')?.value||'').toLowerCase();
+  const fReg=document.getElementById('filter-region')?.value||'';
+  const view=document.getElementById('view-mode')?.value||'grouped';
+  let entries=Object.entries(countryMap).filter(([cc])=>{
+    if(fReg&&rgn(cc)!==fReg)return false;
+    if(srch){const n=(CNAMES[cc]||cc).toLowerCase();if(!n.includes(srch)&&!cc.toLowerCase().includes(srch))return false;}
+    return true;
+  });
+  entries.sort((a,b)=>{
+    const[acc,ad]=[a[0],a[1]],[bcc,bd]=[b[0],b[1]];
+    let av,bv;
+    if(sortKey==='name'){av=CNAMES[acc]||acc;bv=CNAMES[bcc]||bcc;}
+    else if(sortKey==='orders'){av=ad.orders.length;bv=bd.orders.length;}
+    else if(sortKey==='gross'){av=ad.grossGBP;bv=bd.grossGBP;}
+    else if(sortKey==='vat'){av=ad.vatGBP;bv=bd.vatGBP;}
+    else if(sortKey==='net'){av=ad.netGBP;bv=bd.netGBP;}
+    if(av<bv)return sortDir;if(av>bv)return-sortDir;return 0;
+  });
+  [['name','sn'],['orders','so'],['gross','sg'],['vat','sv'],['net','snet']].forEach(([k,id])=>{const e=document.getElementById(id);if(e)e.textContent=sortKey===k?(sortDir<0?'▼':'▲'):'';});
+  renderSummary(entries);
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const RDOT={UK:'var(--uk)',EU:'var(--eu)',ROW:'var(--row)'};
+  let html='';
+  if(view==='grouped'){
+    ['UK','EU','ROW'].forEach(rg=>{
+      const re=entries.filter(([cc])=>rgn(cc)===rg);if(!re.length)return;
+      const rG=re.reduce((s,[,d])=>s+d.grossGBP,0);
+      const rV=re.reduce((s,[,d])=>s+d.vatGBP,0);
+      const rN=re.reduce((s,[,d])=>s+d.netGBP,0);
+      const rO=re.reduce((s,[,d])=>s+d.orders.length,0);const isX=expanded.has(rg);
+      html+=`<tr class="rrow" onclick="toggleRegion('${rg}')"><td colspan="2"><span class="rlbl">
+        <span class="chv ${isX?'o':''}">▶</span><span class="rdot" style="background:${RDOT[rg]}"></span>
+        ${RLBL[rg]}<span class="rmeta">${rO.toLocaleString()} orders · ${re.length} countries</span>
+      </span></td>
+      <td class="r dim">${rO.toLocaleString()}</td><td class="r dim">—</td>
+      <td class="r tn">${fmt(rG)}</td><td class="r tn dim">${fmt(rV)}</td>
+      <td class="r tn grn">${fmt(rN)}</td>
+      <td class="r" style="white-space:nowrap">
+        <button class="copy-btn" onclick="copyRegion('${rg}',event)">⎘ Copy</button>
+        <button class="print-btn" onclick="printRegion('${rg}',event)">🖨</button>
+      </td></tr>`;
+      if(isX){
+        re.forEach(([cc,d])=>{html+=ccRow(cc,d,rg);});
+        html+=`<tr class="rsub"><td colspan="2" style="padding-left:20px;color:var(--t3)">Subtotal — ${RLBL[rg]}</td>
+        <td class="r">${rO.toLocaleString()}</td><td></td>
+        <td class="r tn">${fmt(rG)}</td><td class="r tn dim">${fmt(rV)}</td>
+        <td class="r tn grn">${fmt(rN)}</td><td></td></tr>`;
+      }
+    });
+  } else{entries.forEach(([cc,d])=>{html+=ccRow(cc,d,rgn(cc));});}
+  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0);
+  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0);
+  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0);
+  const tO=entries.reduce((s,[,d])=>s+d.orders.length,0);
+  html+=`<tr class="grand"><td colspan="2"><strong>Grand total</strong></td>
+  <td class="r"><strong>${tO.toLocaleString()}</strong></td><td></td>
+  <td class="r tn"><strong>${fmt(tG)}</strong></td><td class="r tn"><strong>${fmt(tV)}</strong></td>
+  <td class="r tn"><strong>${fmt(tN)}</strong></td><td></td></tr>`;
+  document.getElementById('tbody').innerHTML=html;
+}
+
+function ccRow(cc,d,rg){
+  const isDrill=drillOpen.has(cc);
+  const bc={UK:'buk',EU:'beu',ROW:'brow'}[rg];
+  const isEUorUK=UK.has(cc)||EU.has(cc);
+  const vatPct=VAT[cc]||0;
+  const vatLabel=isEUorUK?(vatPct.toFixed(1)+'%'):'from sheet';
+  let html=`<tr class="crow${isDrill?' dx':''}" onclick="toggleDrill('${cc}')">
+  <td><div class="cname"><span class="chv ${isDrill?'o':''}">▶</span>${CNAMES[cc]||cc}<span class="badge ${bc}">${cc}</span></div></td>
+  <td><span class="badge ${bc}">${rg}</span></td>
+  <td class="r">${d.orders.length.toLocaleString()}</td>
+  <td class="r dim" style="font-size:11px">${vatLabel}</td>
+  <td class="r tn">${fmt(d.grossGBP)}</td>
+  <td class="r tn dim">${fmt(d.vatGBP)}</td>
+  <td class="r tn">${fmt(d.netGBP)}</td>
+  <td class="r dim" style="font-size:10px">${isDrill?'▲':'▼'}</td></tr>`;
+  if(isDrill){
+    const ords=[...d.orders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:parseInt(a.oid)-parseInt(b.oid));
+    const SYM={GBP:'£',EUR:'€',USD:'$',CAD:'C$',AUD:'A$',NZD:'NZ$'};
+    html+=`<tr class="dhead"><td>Date</td><td>Order ID</td><td class="r">SKU</td>
+      <td class="r">Orig. gross</td><td class="r">FX rate</td>
+      <td class="r">Gross ${sym()}</td><td class="r">VAT ${sym()}</td><td class="r">Net ${sym()}</td></tr>`;
+    ords.forEach(o=>{
+      const os=SYM[o.curr]||o.curr+' ';
+      html+=`<tr class="drow">
+        <td>${fmtDate(o.date)}</td><td>#${o.oid}</td>
+        <td class="r"><span class="badge bcurr">${o.sku}</span></td>
+        <td class="r tn dim">${os}${fmtN(o.gross)}</td>
+        <td class="r" style="font-size:10px;color:var(--acc);white-space:nowrap">${o.curr==='GBP'?'—':o.rateDesc}</td>
+        <td class="r tn">${fmt(o.grossGBP)}</td>
+        <td class="r tn dim">${fmt(o.vatGBP)}</td>
+        <td class="r tn">${fmt(o.netGBP)}</td></tr>`;
+    });
+    html+=`<tr class="drow" style="font-weight:500;border-top:1px solid var(--b2)">
+      <td colspan="2" style="color:var(--t3)">Subtotal — ${CNAMES[cc]||cc}</td><td></td><td></td><td></td>
+      <td class="r tn">${fmt(d.grossGBP)}</td>
+      <td class="r tn dim">${fmt(d.vatGBP)}</td>
+      <td class="r tn grn">${fmt(d.netGBP)}</td></tr>`;
+  }
+  return html;
+}
+
+function toggleRegion(r){expanded.has(r)?expanded.delete(r):expanded.add(r);renderTable();}
+function toggleDrill(cc){drillOpen.has(cc)?drillOpen.delete(cc):drillOpen.add(cc);renderTable();}
+function sortBy(k){if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=-1;}renderTable();}
+
+// ── COPY REGION ─────────────────────────────────────────────────
+function copyRegion(rg,e){
+  e.stopPropagation();
+  const RLBL={UK:'United Kingdom',EU:'European Union',ROW:'Rest of World'};
+  const re=Object.entries(countryMap).filter(([cc])=>rgn(cc)===rg).sort((a,b)=>b[1].grossGBP-a[1].grossGBP);
+  const s=sym();
+  const sortedMo=[...selMonths].sort().map(monthKeyToLabel);
+  const lines=[`${RLBL[rg]} — ${sortedMo.join(', ')}`,'',['Country','Code','VAT %','Gross','VAT','Net'].join('\t')];
+  re.forEach(([cc,d])=>{
+    const isEUorUK=UK.has(cc)||EU.has(cc);
+    const vatLabel=isEUorUK?((VAT[cc]||0).toFixed(1)+'%'):'from sheet';
+    lines.push([CNAMES[cc]||cc,cc,vatLabel,s+fmtN(toDisp(d.grossGBP)),s+fmtN(toDisp(d.vatGBP)),s+fmtN(toDisp(d.netGBP))].join('\t'));
+  });
+  const tG=re.reduce((s,[,d])=>s+d.grossGBP,0),tV=re.reduce((s,[,d])=>s+d.vatGBP,0),tN=re.reduce((s,[,d])=>s+d.netGBP,0);
+  lines.push(['TOTAL','','',s+fmtN(toDisp(tG)),s+fmtN(toDisp(tV)),s+fmtN(toDisp(tN))].join('\t'));
+  navigator.clipboard.writeText(lines.join('\n')).catch(()=>{const ta=document.createElement('textarea');ta.value=lines.join('\n');ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);});
+  const btn=e.target;btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='⎘ Copy';btn.classList.remove('copied');},2000);
+}
+
+// ── PRINT ───────────────────────────────────────────────────────
+function getMonthLabel(){return[...selMonths].sort().map(monthKeyToLabel).join(', ');}
+function getSkuLabel(){return[...selSKUs].join(', ');}
+
+function buildPrintTable(entries,rg){
+  const RLBL={UK:'United Kingdom',EU:'European Union',ROW:'Rest of World'};
+  const re=entries.filter(([cc])=>!rg||rgn(cc)===rg).sort((a,b)=>b[1].grossGBP-a[1].grossGBP);
+  const s=sym();
+  let rows=re.map(([cc,d])=>{
+    const isEUorUK=UK.has(cc)||EU.has(cc);
+    const vatLabel=isEUorUK?((VAT[cc]||0).toFixed(1)+'%'):'from sheet';
+    return`<tr>
+      <td>${CNAMES[cc]||cc}</td><td>${cc}</td>
+      <td class="r">${vatLabel}</td>
+      <td class="r">${s}${fmtN(toDisp(d.grossGBP))}</td>
+      <td class="r">${s}${fmtN(toDisp(d.vatGBP))}</td>
+      <td class="r">${s}${fmtN(toDisp(d.netGBP))}</td>
+    </tr>`;
+  }).join('');
+  const tG=re.reduce((s,[,d])=>s+d.grossGBP,0),tV=re.reduce((s,[,d])=>s+d.vatGBP,0),tN=re.reduce((s,[,d])=>s+d.netGBP,0);
+  rows+=`<tr class="total-row"><td colspan="3"><strong>Total — ${rg?RLBL[rg]:'All regions'}</strong></td><td class="r"><strong>${s}${fmtN(toDisp(tG))}</strong></td><td class="r"><strong>${s}${fmtN(toDisp(tV))}</strong></td><td class="r"><strong>${s}${fmtN(toDisp(tN))}</strong></td></tr>`;
+  return`<table class="print-table">
+    <thead><tr><th>Country</th><th>Code</th><th class="r">VAT %</th><th class="r">Gross (${s})</th><th class="r">VAT (${s})</th><th class="r">Net (${s})</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function printRegion(rg,e){
+  e.stopPropagation();
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const entries=Object.entries(countryMap);
+  const re=entries.filter(([cc])=>rgn(cc)===rg);
+  const rO=re.reduce((s,[,d])=>s+d.orders.length,0);
+  const html=`
+    <div class="print-header">
+      <h1>Revenue Analysis</h1>
+      <p>${getMonthLabel()} · SKU: ${getSkuLabel()} · ECB daily FX rates · VAT extracted from gross</p>
+    </div>
+    <div class="print-region">
+      <div class="print-region-title">${RLBL[rg]}</div>
+      <div class="print-region-meta">${rO.toLocaleString()} orders · ${re.length} countries · ${getMonthLabel()}</div>
+      ${buildPrintTable(entries,rg)}
+    </div>`;
+  openPrintWindow(html);
+}
+
+function printAll(){
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const entries=Object.entries(countryMap);
+  const regions=['UK','EU','ROW'].filter(rg=>entries.some(([cc])=>rgn(cc)===rg));
+  const sections=regions.map(rg=>{
+    const re=entries.filter(([cc])=>rgn(cc)===rg);
+    const rO=re.reduce((s,[,d])=>s+d.orders.length,0);
+    return`<div class="print-region">
+      <div class="print-region-title">${RLBL[rg]}</div>
+      <div class="print-region-meta">${rO.toLocaleString()} orders · ${re.length} countries · ${getMonthLabel()}</div>
+      ${buildPrintTable(entries,rg)}
+    </div>`;
+  }).join('');
+  const tG=entries.reduce((s,[,d])=>s+d.grossGBP,0);
+  const tV=entries.reduce((s,[,d])=>s+d.vatGBP,0);
+  const tN=entries.reduce((s,[,d])=>s+d.netGBP,0);
+  const S=sym();
+  const summary=`<div style="margin-bottom:20pt;padding:12pt;border:1px solid #ccc;border-radius:4pt">
+    <table style="width:100%;font-size:10pt"><tr>
+      <td><strong>Gross Revenue</strong><br>${S}${fmtN(toDisp(tG))}</td>
+      <td><strong>VAT</strong><br>${S}${fmtN(toDisp(tV))}</td>
+      <td><strong>Net Revenue</strong><br>${S}${fmtN(toDisp(tN))}</td>
+      <td><strong>Orders</strong><br>${activeOrders.length.toLocaleString()}</td>
+      <td><strong>FX Rates</strong><br>ECB daily via frankfurter.app</td>
+    </tr></table>
+  </div>`;
+  const html=`
+    <div class="print-header">
+      <h1>Revenue Analysis</h1>
+      <p>${getMonthLabel()} · SKU: ${getSkuLabel()} · ECB daily FX rates · VAT extracted from gross</p>
+    </div>
+    ${summary}${sections}`;
+  openPrintWindow(html);
+}
+
+function openPrintWindow(bodyHtml){
+  const win=window.open('','_blank','width=900,height=700');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Revenue Analysis</title>
+  <style>
+    body{font-family:'Georgia',serif;font-size:11pt;color:#000;padding:20pt 30pt;max-width:800pt;margin:0 auto}
+    h1{font-style:italic;font-weight:normal;font-size:22pt;margin-bottom:4pt}
+    .print-header p{font-size:10pt;color:#555;margin-bottom:20pt}
+    .print-region{margin-bottom:32pt;page-break-after:always}
+    .print-region:last-child{page-break-after:avoid}
+    .print-region-title{font-size:16pt;font-style:italic;font-weight:normal;border-bottom:1px solid #ccc;padding-bottom:6pt;margin-bottom:6pt}
+    .print-region-meta{font-size:9pt;color:#666;margin-bottom:12pt}
+    .print-table{width:100%;border-collapse:collapse}
+    .print-table th{background:#f0f0f0;border:1px solid #ccc;padding:5pt 8pt;font-size:9pt;text-align:left}
+    .print-table th.r{text-align:right}
+    .print-table td{border:1px solid #ddd;padding:5pt 8pt;font-size:10pt}
+    .print-table td.r{text-align:right}
+    .print-table tr.total-row td{font-weight:bold;background:#f8f8f8;border-top:2px solid #999}
+    @media print{body{padding:0}button{display:none}}
+  </style></head><body>
+  ${bodyHtml}
+  <div style="margin-top:16pt;font-size:8pt;color:#999;border-top:1px solid #eee;padding-top:8pt">
+    Generated ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})} · 
+    FX: ${fxSource}
+  </div>
+  <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+// ── EXCEL EXPORT ─────────────────────────────────────────────────
+function exportExcel(){
+  if(!activeOrders.length)return;
+  const wb=XLSX.utils.book_new();
+  const dc=document.getElementById('disp-curr')?.value||'GBP';
+  const det=[['Date Paid','Order ID','SKU','Month','Ship Country','Country Name','Region','Currency','Orig Gross','Net (orig curr)','VAT (orig curr)','FX Rate (1 GBP = X curr)','Gross GBP','Gross '+dc,'VAT '+dc,'Net '+dc,'VAT Method']];
+  [...activeOrders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:parseInt(a.oid)-parseInt(b.oid)).forEach(o=>{
+    const isEUorUK=UK.has(o.cc)||EU.has(o.cc);
+    const vatMethod=isEUorUK?`${(VAT[o.cc]||0).toFixed(1)}% (calculated)`:'from sheet';
+    det.push([o.date,o.oid,o.sku,monthKeyToLabel(o.monthKey),o.cc,CNAMES[o.cc]||o.cc,rgn(o.cc),o.curr,
+      +o.gross.toFixed(2),+o.net.toFixed(2),+o.vat.toFixed(2),
+      o.curr==='GBP'?1:(o.rate||'N/A'),
+      +o.grossGBP.toFixed(2),+toDisp(o.grossGBP).toFixed(2),
+      +toDisp(o.vatGBP).toFixed(2),+toDisp(o.netGBP).toFixed(2),
+      vatMethod]);
+  });
+  const ws1=XLSX.utils.aoa_to_sheet(det);ws1['!cols']=[10,10,20,10,8,20,6,8,12,12,12,22,12,12,12,12,20].map(w=>({wch:w}));styleHdr(ws1,det[0].length);XLSX.utils.book_append_sheet(wb,ws1,'Order Detail');
+  const sum=[['Country','Code','Region','Orders','VAT %','Gross '+dc,'VAT '+dc,'Net '+dc,'VAT Method']];
+  const ents=Object.entries(countryMap).sort((a,b)=>b[1].grossGBP-a[1].grossGBP);
+  ents.forEach(([cc,d])=>{
+    const isEUorUK=UK.has(cc)||EU.has(cc);
+    sum.push([CNAMES[cc]||cc,cc,rgn(cc),d.orders.length,
+      isEUorUK?(VAT[cc]||0).toFixed(1)+'%':'from sheet',
+      +toDisp(d.grossGBP).toFixed(2),+toDisp(d.vatGBP).toFixed(2),+toDisp(d.netGBP).toFixed(2),
+      isEUorUK?'Calculated from net':'From sheet tax columns']);
+  });
+  const tG=ents.reduce((s,[,d])=>s+d.grossGBP,0),tV=ents.reduce((s,[,d])=>s+d.vatGBP,0),tN=ents.reduce((s,[,d])=>s+d.netGBP,0);
+  sum.push(['TOTAL','','',ents.reduce((s,[,d])=>s+d.orders.length,0),'',+toDisp(tG).toFixed(2),+toDisp(tV).toFixed(2),+toDisp(tN).toFixed(2),'']);
+  const ws2=XLSX.utils.aoa_to_sheet(sum);ws2['!cols']=[22,6,6,8,8,14,14,14,22].map(w=>({wch:w}));styleHdr(ws2,sum[0].length);XLSX.utils.book_append_sheet(wb,ws2,'Country Summary');
+  const reg=[['Region','Countries','Orders','Gross '+dc,'VAT '+dc,'Net '+dc,'% of Gross']];
+  ['UK','EU','ROW'].forEach(rg=>{const re=ents.filter(([cc])=>rgn(cc)===rg);const rG=re.reduce((s,[,d])=>s+d.grossGBP,0),rV=re.reduce((s,[,d])=>s+d.vatGBP,0),rN=re.reduce((s,[,d])=>s+d.netGBP,0);reg.push([rg==='UK'?'United Kingdom':rg==='EU'?'European Union':'Rest of World',re.length,re.reduce((s,[,d])=>s+d.orders.length,0),+toDisp(rG).toFixed(2),+toDisp(rV).toFixed(2),+toDisp(rN).toFixed(2),tG?+(rG/tG*100).toFixed(1):0]);});
+  const ws3=XLSX.utils.aoa_to_sheet(reg);ws3['!cols']=[20,10,10,16,16,16,14].map(w=>({wch:w}));styleHdr(ws3,reg[0].length);XLSX.utils.book_append_sheet(wb,ws3,'Region Summary');
+  const fxr=[['Date','Currency','1 GBP =','Source']];
+  Object.entries(fxByDate).sort((a,b)=>a[0]<b[0]?-1:1).forEach(([date,rates])=>{Object.entries(rates).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([c,r])=>fxr.push([date,c,r,'frankfurter.app (ECB)']));});
+  const ws4=XLSX.utils.aoa_to_sheet(fxr);ws4['!cols']=[12,10,14,22].map(w=>({wch:w}));styleHdr(ws4,4);XLSX.utils.book_append_sheet(wb,ws4,'FX Rates');
+  const moLabel=getMonthLabel().replace(/[^a-zA-Z0-9]/g,'-');
+  XLSX.writeFile(wb,`revenue-analysis-${moLabel}.xlsx`);
+}
+function styleHdr(ws,n){for(let c=0;c<n;c++){const a=XLSX.utils.encode_cell({r:0,c});if(!ws[a])continue;ws[a].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{patternType:'solid',fgColor:{rgb:'1a3d2e'}}};}}
+
+// ── AUTO LOAD ────────────────────────────────────────────────────
+window.addEventListener('load', () => { loadFromScript(); });
+
+// ── FILE DROP ────────────────────────────────────────────────────
+const dz=document.getElementById('dropzone');
+if(dz){
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);});
+}
+const fi=document.getElementById('file-input');
+if(fi) fi.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0]);});
+</script>
+</body>
+</html>
