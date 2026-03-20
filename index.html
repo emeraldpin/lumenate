@@ -154,8 +154,12 @@ thead th.r{text-align:right}
 .fxrow{font-size:11px;display:flex;gap:8px}
 .fxrow .fc{color:var(--t3);width:30px}.fxrow .fr{color:var(--acc)}.fxrow .fd{color:var(--t3);font-size:10px}
 
-.site-footer{text-align:right;padding:10px 22px;font-size:10px;color:var(--t3);border-top:1px solid var(--b1);background:var(--s1)}
-.site-footer strong{color:var(--t2)}
+.site-footer{display:flex;align-items:center;justify-content:flex-end;padding:12px 22px;background:var(--bg);border-top:1px solid var(--b1)}
+.site-footer .s360{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--b2);border-radius:20px;background:var(--s1);text-decoration:none;transition:border-color .15s}
+.site-footer .s360:hover{border-color:var(--b3)}
+.site-footer .s360-dot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex-shrink:0}
+.site-footer .s360-text{font-size:10px;color:var(--t3);letter-spacing:.04em}
+.site-footer .s360-brand{font-size:10px;color:var(--t2);font-weight:500;letter-spacing:.02em}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
@@ -282,7 +286,13 @@ thead th.r{text-align:right}
   <div class="fxwrap" id="fxwrap"><div class="fxpanel" id="fxpanel"></div></div>
 </div>
 
-<div class="site-footer">Powered by <strong>Strategist360</strong></div>
+<div class="site-footer">
+  <a class="s360" href="#" onclick="return false">
+    <span class="s360-dot"></span>
+    <span class="s360-text">powered by</span>
+    <span class="s360-brand">strategist360</span>
+  </a>
+</div>
 
 <!-- Hidden print container -->
 <div id="print-container" style="display:none"></div>
@@ -441,7 +451,7 @@ function parseStripeRows(rows){
     const cc  =(r['customer_address_country']||r['card_country']||'').toString().trim().toUpperCase();
     const curr=(r['customer_facing_currency']||r['currency']||'').toString().trim().toUpperCase();
     const date=(r['created_utc']||'').toString().trim();
-    const oid =(r['payment_metadata[order_number]']||r['source_id']||'').toString().trim();
+    const oid =(r['source_id']||r['payment_metadata[order_number]']||'').toString().trim();
     // customer_facing_amount = gross incl VAT (already converted to customer currency)
     // For ROW: use gross column (which may be in GBP)
     // We use customer_facing_amount as the order total in customer currency
@@ -628,8 +638,8 @@ async function doAnalyse(){
 // don't appear here will be placed in 'unassigned' and shown with
 // an assign dropdown so you can categorise them.
 const SKU_CATEGORIES = {
-  digital:  { label:'Digital',    color:'var(--acc)',  bg:'var(--acc2)',  skus:['LUM-NOVA-001'] },
-  physical: { label:'Physical',   color:'var(--eu)',   bg:'var(--eub)',   skus:['LUM-1Y-ACCESS-6000'] },
+  digital:  { label:'Digital',    color:'var(--acc)',  bg:'var(--acc2)',  skus:['LUM-1Y-ACCESS-6000'] },
+  physical: { label:'Physical',   color:'var(--eu)',   bg:'var(--eub)',   skus:['LUM-NOVA-001'] },
   free:     { label:'Free items', color:'var(--t3)',   bg:'var(--s3)',    skus:['LUM-FACE-PAD','LUM-MODULE','LUM-FABRIC-MASK','LUM-PACKAGING','LUM-USB','LUM-COTTON-BAG'] },
 };
 // Categories that are included in revenue analysis (free is excluded)
