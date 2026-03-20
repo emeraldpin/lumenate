@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lumenate - Revenue Analysis</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -160,6 +161,19 @@ thead th.r{text-align:right}
 .site-footer .s360-dot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex-shrink:0}
 .site-footer .s360-text{font-size:10px;color:var(--t3);letter-spacing:.04em}
 .site-footer .s360-brand{font-size:10px;color:var(--t2);font-weight:500;letter-spacing:.02em}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1px;background:var(--b1);border-bottom:2px solid var(--b2)}
+.chart-card{background:var(--s1);padding:16px 20px}
+.chart-title{font-size:10px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px}
+.chart-card canvas{max-height:200px}
+#order-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.order-overlay-inner{background:var(--s1);border:1px solid var(--b2);border-radius:12px;width:90%;max-width:720px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+.order-overlay-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--b1);font-size:12px;color:var(--t1);font-weight:500}
+#order-overlay-body{overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:8px}
+.order-result-card{background:var(--s2);border:1px solid var(--b1);border-radius:8px;padding:12px 14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 16px}
+.orc-label{font-size:9px;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:2px}
+.orc-val{font-size:12px;color:var(--t1)}
+.orc-badge{display:inline-block;font-size:9px;padding:1px 6px;border-radius:3px;font-weight:500}
+.orc-source{font-size:9px;padding:2px 7px;border-radius:10px;background:var(--s3);color:var(--t3);margin-left:6px}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
@@ -200,10 +214,11 @@ thead th.r{text-align:right}
   <div class="aph">
     <h1>Lumenate &mdash; Revenue Analysis</h1>
     <div class="hsp"></div>
-    <select class="hsel" id="disp-curr" onchange="applyFilters()"><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option></select>
+    <select class="hsel" id="disp-curr" onchange="applyFilters();if(chartsOpen)buildCharts();"><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option></select>
     <select class="hsel" id="view-mode" onchange="renderTable()"><option value="grouped">Grouped</option><option value="flat">Flat</option></select>
     <button class="hbtn pri" onclick="exportExcel()">⬇ Export Excel</button>
     <button class="hbtn" onclick="printAll()">🖨 Print</button>
+    <button class="hbtn" id="btn-charts-toggle" onclick="toggleCharts()">📊 Charts</button>
     <button class="hbtn" id="btn-data-toggle" onclick="toggleDataPanel()">📥 Data ▾</button>
   </div>
 
@@ -251,14 +266,39 @@ thead th.r{text-align:right}
     <span class="clbl" id="ord-count"></span>
   </div>
 
+  <!-- Charts panel -->
+  <div id="charts-panel" style="display:none">
+    <div class="charts-grid">
+      <div class="chart-card"><div class="chart-title">Gross by Region</div><canvas id="chart-region"></canvas></div>
+      <div class="chart-card"><div class="chart-title">Gross by Month</div><canvas id="chart-month"></canvas></div>
+      <div class="chart-card"><div class="chart-title">Top 10 Countries (Net)</div><canvas id="chart-country"></canvas></div>
+      <div class="chart-card"><div class="chart-title">Digital vs Physical</div><canvas id="chart-sku"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Order search results overlay -->
+  <div id="order-overlay" style="display:none">
+    <div class="order-overlay-inner">
+      <div class="order-overlay-head">
+        <span id="order-overlay-title">Order search</span>
+        <button onclick="closeOrderOverlay()" style="background:none;border:none;color:var(--t2);cursor:pointer;font-size:16px">✕</button>
+      </div>
+      <div id="order-overlay-body"></div>
+    </div>
+  </div>
+
   <!-- Search + region filter -->
   <div class="ctrlbar">
-    <span class="clbl">Filter</span>
-    <input type="text" id="search" placeholder="Country…" oninput="renderTable()">
+    <span class="clbl">Country</span>
+    <input type="text" id="search" placeholder="Country name or code…" oninput="renderTable()">
     <select id="filter-region" onchange="renderTable()">
       <option value="">All regions</option><option value="UK">UK</option>
       <option value="EU">EU</option><option value="ROW">ROW</option>
     </select>
+    <div class="filterbar-sep"></div>
+    <span class="clbl">Order</span>
+    <input type="text" id="order-search" placeholder="Order # or Stripe ID…" oninput="doOrderSearch(this.value)" style="width:180px">
+    <div id="order-results" style="display:none"></div>
   </div>
 
   <div class="sumbar" id="sumbar"></div>
@@ -851,6 +891,7 @@ function applyFilters(){
   const monthLabel=labels.length===1?labels[0]:labels.length===allMonths.length?`${labels[0]} – ${labels[labels.length-1]}`:`${labels[0]} + ${labels.length-1} more`;
   document.getElementById('ord-count').textContent=`${activeOrders.length.toLocaleString()} orders · ${Object.keys(map).length} countries · ${monthLabel}`;
   renderTable();
+  if(chartsOpen) buildCharts();
 }
 
 function resetApp(){
@@ -872,6 +913,173 @@ function resetApp(){
 }
 
 
+
+// ── CHARTS ───────────────────────────────────────────────────────
+let chartsOpen = false;
+let chartInstances = {};
+
+function toggleCharts(){
+  chartsOpen = !chartsOpen;
+  const panel = document.getElementById('charts-panel');
+  const btn   = document.getElementById('btn-charts-toggle');
+  panel.style.display = chartsOpen ? 'block' : 'none';
+  if(btn) btn.textContent = chartsOpen ? '📊 Charts ▾' : '📊 Charts';
+  if(chartsOpen && Object.keys(countryMap).length) buildCharts();
+}
+
+const CHART_COLORS = {
+  uk:  '#60a5fa', eu: '#fbbf24', row: '#c084fc',
+  dig: '#5ee7a0', phy: '#fbbf24',
+  grid: '#252a33', text: '#7e8fa0',
+};
+
+function chartDefaults(){
+  return {
+    responsive:true, maintainAspectRatio:true,
+    plugins:{ legend:{ labels:{ color:CHART_COLORS.text, font:{family:'DM Mono, monospace',size:10}, boxWidth:10 }}},
+    scales:{}
+  };
+}
+
+function destroyChart(id){
+  if(chartInstances[id]){ chartInstances[id].destroy(); delete chartInstances[id]; }
+}
+
+function buildCharts(){
+  if(typeof Chart === 'undefined') return;
+  const entries = Object.entries(countryMap);
+  const S = sym();
+
+  // ── Chart 1: Gross by Region (doughnut) ───────────────────────
+  destroyChart('region');
+  const ukG  = entries.filter(([cc])=>rgn(cc)==='UK').reduce((s,[,d])=>s+d.grossGBP,0);
+  const euG  = entries.filter(([cc])=>rgn(cc)==='EU').reduce((s,[,d])=>s+d.grossGBP,0);
+  const rowG = entries.filter(([cc])=>rgn(cc)==='ROW').reduce((s,[,d])=>s+d.grossGBP,0);
+  const ctx1 = document.getElementById('chart-region');
+  if(ctx1) chartInstances['region'] = new Chart(ctx1, {
+    type:'doughnut',
+    data:{ labels:['🇬🇧 UK','🇪🇺 EU','🌐 ROW'],
+      datasets:[{ data:[toDisp(ukG),toDisp(euG),toDisp(rowG)].map(v=>+v.toFixed(2)),
+        backgroundColor:[CHART_COLORS.uk,CHART_COLORS.eu,CHART_COLORS.row],
+        borderWidth:0, hoverOffset:6 }]},
+    options:{...chartDefaults(), cutout:'65%',
+      plugins:{...chartDefaults().plugins,
+        tooltip:{ callbacks:{ label: ctx => ` ${S}${ctx.parsed.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}` }}}}
+  });
+
+  // ── Chart 2: Gross by Month (bar) ─────────────────────────────
+  destroyChart('month');
+  const monthTotals = {};
+  activeOrders.forEach(o=>{ monthTotals[o.monthKey]=(monthTotals[o.monthKey]||0)+o.grossGBP; });
+  const mKeys  = Object.keys(monthTotals).sort();
+  const mLabels = mKeys.map(monthKeyToLabel);
+  const mVals  = mKeys.map(k=>+toDisp(monthTotals[k]).toFixed(2));
+  const ctx2 = document.getElementById('chart-month');
+  if(ctx2) chartInstances['month'] = new Chart(ctx2, {
+    type:'bar',
+    data:{ labels:mLabels, datasets:[{ label:'Gross', data:mVals,
+      backgroundColor:CHART_COLORS.uk+'99', borderColor:CHART_COLORS.uk, borderWidth:1, borderRadius:3 }]},
+    options:{...chartDefaults(),
+      scales:{
+        x:{ grid:{color:CHART_COLORS.grid}, ticks:{color:CHART_COLORS.text,font:{size:10}} },
+        y:{ grid:{color:CHART_COLORS.grid}, ticks:{color:CHART_COLORS.text,font:{size:10},
+          callback: v => S+(v>=1000?(v/1000).toFixed(0)+'k':v)} }
+      },
+      plugins:{...chartDefaults().plugins,legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>` ${S}${ctx.parsed.y.toLocaleString('en-GB',{minimumFractionDigits:2})}`}}}
+    }
+  });
+
+  // ── Chart 3: Top 10 Countries by Net (horizontal bar) ─────────
+  destroyChart('country');
+  const sorted = [...entries].sort((a,b)=>b[1].netGBP-a[1].netGBP).slice(0,10);
+  const ccLabels = sorted.map(([cc])=>CNAMES[cc]||cc);
+  const ccVals   = sorted.map(([,d])=>+toDisp(d.netGBP).toFixed(2));
+  const ccColors = sorted.map(([cc])=>rgn(cc)==='UK'?CHART_COLORS.uk:rgn(cc)==='EU'?CHART_COLORS.eu:CHART_COLORS.row);
+  const ctx3 = document.getElementById('chart-country');
+  if(ctx3) chartInstances['country'] = new Chart(ctx3, {
+    type:'bar',
+    data:{ labels:ccLabels, datasets:[{ data:ccVals, backgroundColor:ccColors, borderWidth:0, borderRadius:3 }]},
+    options:{...chartDefaults(), indexAxis:'y',
+      scales:{
+        x:{ grid:{color:CHART_COLORS.grid}, ticks:{color:CHART_COLORS.text,font:{size:10},callback:v=>S+(v>=1000?(v/1000).toFixed(0)+'k':v)} },
+        y:{ grid:{display:false}, ticks:{color:CHART_COLORS.text,font:{size:10}} }
+      },
+      plugins:{...chartDefaults().plugins,legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>` ${S}${ctx.parsed.x.toLocaleString('en-GB',{minimumFractionDigits:2})}`}}}
+    }
+  });
+
+  // ── Chart 4: Digital vs Physical gross (doughnut) ──────────────
+  destroyChart('sku');
+  const skuTotals = {};
+  activeOrders.forEach(o=>{ skuTotals[o.sku]=(skuTotals[o.sku]||0)+o.grossGBP; });
+  const skuLabels = Object.keys(skuTotals);
+  const skuVals   = skuLabels.map(k=>+toDisp(skuTotals[k]).toFixed(2));
+  const skuColors = skuLabels.map(s=>SKU_CATEGORIES.digital.skus.includes(s)?CHART_COLORS.dig:CHART_COLORS.phy);
+  const ctx4 = document.getElementById('chart-sku');
+  if(ctx4) chartInstances['sku'] = new Chart(ctx4, {
+    type:'doughnut',
+    data:{ labels:skuLabels, datasets:[{ data:skuVals, backgroundColor:skuColors, borderWidth:0, hoverOffset:6 }]},
+    options:{...chartDefaults(), cutout:'65%',
+      plugins:{...chartDefaults().plugins,
+        tooltip:{callbacks:{label:ctx=>` ${S}${ctx.parsed.toLocaleString('en-GB',{minimumFractionDigits:2})}`}}} }
+  });
+}
+
+// ── ORDER SEARCH ─────────────────────────────────────────────────
+function doOrderSearch(q){
+  q = q.trim().toLowerCase();
+  if(!q || q.length < 2){
+    closeOrderOverlay(); return;
+  }
+  const results = allOrders.filter(o=>
+    o.oid.toLowerCase().includes(q) ||
+    o.oid.replace(/^#/,'').toLowerCase().includes(q)
+  );
+  if(!results.length){
+    closeOrderOverlay(); return;
+  }
+  showOrderOverlay(q, results);
+}
+
+function showOrderOverlay(q, results){
+  const overlay = document.getElementById('order-overlay');
+  const body    = document.getElementById('order-overlay-body');
+  const title   = document.getElementById('order-overlay-title');
+  title.textContent = `${results.length} result${results.length!==1?'s':''} for "${q}"`;
+  const S = sym();
+  const SYM={GBP:'£',EUR:'€',USD:'$',CAD:'C$',AUD:'A$',NZD:'NZ$'};
+  body.innerHTML = results.sort((a,b)=>a.date<b.date?-1:1).map(o=>{
+    const isEUorUK = UK.has(o.cc)||EU.has(o.cc);
+    const vatLabel = isEUorUK?((VAT[o.cc]||0).toFixed(1)+'%'):'from sheet';
+    const srcLabel = o.source==='stripe'?'Stripe':'WooCommerce';
+    return `<div class="order-result-card">
+      <div><div class="orc-label">Order ID</div><div class="orc-val">#${o.oid}<span class="orc-source">${srcLabel}</span></div></div>
+      <div><div class="orc-label">Date</div><div class="orc-val">${fmtDate(o.date)}</div></div>
+      <div><div class="orc-label">Country</div><div class="orc-val">${CNAMES[o.cc]||o.cc} (${o.cc})</div></div>
+      <div><div class="orc-label">SKU</div><div class="orc-val">${o.sku}</div></div>
+      <div><div class="orc-label">Currency</div><div class="orc-val">${(SYM[o.curr]||o.curr)}${o.gross.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})} <span style="font-size:10px;color:var(--t3)">${o.curr}</span></div></div>
+      <div><div class="orc-label">VAT rate</div><div class="orc-val">${vatLabel}</div></div>
+      <div><div class="orc-label">Gross ${S}</div><div class="orc-val">${S}${toDisp(o.grossGBP).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+      <div><div class="orc-label">VAT ${S}</div><div class="orc-val">${S}${toDisp(o.vatGBP).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+      <div><div class="orc-label">Net ${S}</div><div class="orc-val" style="color:var(--acc)">${S}${toDisp(o.netGBP).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+    </div>`;
+  }).join('');
+  overlay.style.display = 'flex';
+}
+
+function closeOrderOverlay(){
+  document.getElementById('order-overlay').style.display = 'none';
+}
+
+// Close overlay on backdrop click
+document.addEventListener('click', e=>{
+  const overlay = document.getElementById('order-overlay');
+  if(overlay && e.target === overlay) closeOrderOverlay();
+});
+// Close on Escape
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeOrderOverlay(); });
 
 // ── DATA PANEL ──────────────────────────────────────────────────
 let dataPanelOpen = true;
@@ -912,7 +1120,7 @@ function renderSummary(entries){
     <div class="scard cvat"><div class="slbl">VAT</div><div class="sval">${fmt(tV)}</div><div class="ssub">UK/EU: calculated · ROW: from sheet</div></div>
     <div class="scard cnet"><div class="slbl">Net Revenue</div><div class="sval">${fmt(tN)}</div><div class="ssub">Ex-VAT/tax</div></div>
     <div class="scard cuk"><div class="slbl">🇬🇧 United Kingdom</div><div class="sval">${fmt(ukG)}</div><div class="ssub">${tG?(ukG/tG*100).toFixed(1):0}%</div></div>
-    <div class="scard ceu"><div class="slbl">🌍 European Union</div><div class="sval">${fmt(euG)}</div><div class="ssub">${tG?(euG/tG*100).toFixed(1):0}%</div></div>
+    <div class="scard ceu"><div class="slbl">🇪🇺 European Union</div><div class="sval">${fmt(euG)}</div><div class="ssub">${tG?(euG/tG*100).toFixed(1):0}%</div></div>
     <div class="scard crow"><div class="slbl">🌐 Rest of World</div><div class="sval">${fmt(rwG)}</div><div class="ssub">${tG?(rwG/tG*100).toFixed(1):0}%</div></div>`;
 }
 
@@ -938,7 +1146,7 @@ function renderTable(){
   });
   [['name','sn'],['orders','so'],['gross','sg'],['vat','sv'],['net','snet']].forEach(([k,id])=>{const e=document.getElementById(id);if(e)e.textContent=sortKey===k?(sortDir<0?'▼':'▲'):'';});
   renderSummary(entries);
-  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🇪🇺 European Union',ROW:'🌐 Rest of World'};
   const RDOT={UK:'var(--uk)',EU:'var(--eu)',ROW:'var(--row)'};
   let html='';
   if(view==='grouped'){
@@ -1072,7 +1280,7 @@ function buildPrintTable(entries,rg){
 
 function printRegion(rg,e){
   e.stopPropagation();
-  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🇪🇺 European Union',ROW:'🌐 Rest of World'};
   const entries=Object.entries(countryMap);
   const re=entries.filter(([cc])=>rgn(cc)===rg);
   const rO=re.reduce((s,[,d])=>s+d.orders.length,0);
@@ -1090,7 +1298,7 @@ function printRegion(rg,e){
 }
 
 function printAll(){
-  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🌍 European Union',ROW:'🌐 Rest of World'};
+  const RLBL={UK:'🇬🇧 United Kingdom',EU:'🇪🇺 European Union',ROW:'🌐 Rest of World'};
   const entries=Object.entries(countryMap);
   const regions=['UK','EU','ROW'].filter(rg=>entries.some(([cc])=>rgn(cc)===rg));
   const sections=regions.map(rg=>{
@@ -1194,7 +1402,15 @@ function exportExcel(){
 function styleHdr(ws,n){for(let c=0;c<n;c++){const a=XLSX.utils.encode_cell({r:0,c});if(!ws[a])continue;ws[a].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{patternType:'solid',fgColor:{rgb:'1a3d2e'}}};}}
 
 // ── AUTO LOAD ────────────────────────────────────────────────────
-window.addEventListener('load', () => { loadFromScript(); });
+window.addEventListener('load', async () => {
+  // Auto-load data AND analyse on page open
+  await loadFromScript();
+  // Only auto-analyse if load succeeded (pendingRows will be set)
+  if(pendingRows){
+    const btn = document.getElementById('btn-analyse');
+    if(btn) btn.click();
+  }
+});
 
 // ── FILE DROP ────────────────────────────────────────────────────
 const dz=document.getElementById('dropzone');
