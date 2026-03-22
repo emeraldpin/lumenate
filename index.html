@@ -166,13 +166,35 @@ td.nc{font-family:var(--font-head);font-weight:600;font-size:13px}.td-mo{font-fa
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo } = React;
 
-const GS_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT42GxKoOKeXwhW1CyxGZKBsJ_279w8U-6JLM-NaorfzEUtaY3KsW009YuGT7nslHcr2q048Z2ejRFu/pub';
+// Sheet IDs (the long alphanumeric part of the published URL)
+const VAT_SHEET_ID   = '2PACX-1vSCpmsGq_ZDo-0ojYVNFVc_zoqkP04od44_fvWao9SPm615MeCGbxOXo0i_pffA52B8hpJXxUDYlpMz';
+const SALES_SHEET_ID = '2PACX-1vT42GxKoOKeXwhW1CyxGZKBsJ_279w8U-6JLM-NaorfzEUtaY3KsW009YuGT7nslHcr2q048Z2ejRFu';
+
 const SOURCES = {
-  vatRates:{ proxy:'/proxy/vatrates', url:'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCpmsGq_ZDo-0ojYVNFVc_zoqkP04od44_fvWao9SPm615MeCGbxOXo0i_pffA52B8hpJXxUDYlpMz/pub?gid=1552611427&single=true&output=csv', label:'VAT Rates' },
-  SK:{ proxy:'/proxy/sk', url:GS_BASE+'?gid=2112252225&single=true&output=csv', label:'Store SK' },
-  DE:{ proxy:'/proxy/de', url:GS_BASE+'?gid=0&single=true&output=csv', label:'Store DE' },
-  YAZ:{ proxy:'/proxy/yaz', url:GS_BASE+'?gid=2005226924&single=true&output=csv', label:'Store YAZ' },
+  vatRates:{ id:VAT_SHEET_ID,   gid:'1552611427', label:'VAT Rates' },
+  SK:      { id:SALES_SHEET_ID, gid:'2112252225', label:'Store SK' },
+  DE:      { id:SALES_SHEET_ID, gid:'0',          label:'Store DE' },
+  YAZ:     { id:SALES_SHEET_ID, gid:'2005226924', label:'Store YAZ' },
 };
+
+// Google Visualization API (gviz) returns JSONP with full CORS support
+// This works in ALL browser environments including Netlify, Duda, iframes
+function gvizUrl(id, gid) {
+  return `https://docs.google.com/spreadsheets/d/e/${id}/pub?gid=${gid}&single=true&output=csv`;
+}
+function buildAttempts(key) {
+  const s = SOURCES[key];
+  const csvUrl = gvizUrl(s.id, s.gid);
+  return [
+    // Netlify function if deployed there
+    `/.netlify/functions/proxy?url=${encodeURIComponent(csvUrl)}`,
+    // Direct CSV (works in permissive environments like onecompiler)
+    csvUrl,
+    // CORS proxies as last resort
+    `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`,
+  ];
+}
 const VAT_CONFIG = {
   'Austria':{reduced:10,standard:20,code:'AT'},'Belgium':{reduced:6,standard:21,code:'BE'},
   'Bulgaria':{reduced:9,standard:20,code:'BG'},'Croatia':{reduced:5,standard:25,code:'HR'},
@@ -440,17 +462,10 @@ function App(){
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),2500);};
 
-  const fetchCSV=async(key,url)=>{
+  const fetchCSV=async(key)=>{
     setStatus(s=>({...s,[key]:'loading'}));
-    // Try Netlify proxy first (no CORS issues), then direct, then CORS proxies
-    const src=SOURCES[key];
-    const attempts=[
-      src?.proxy||null,
-      url,
-      'https://corsproxy.io/?'+encodeURIComponent(url),
-      'https://api.allorigins.win/raw?url='+encodeURIComponent(url),
-      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(url),
-    ].filter(Boolean);
+    const url=gvizUrl(SOURCES[key].id,SOURCES[key].gid);
+    const attempts = buildAttempts(key);
     for(const u of attempts){
       try{
         const controller=new AbortController();
@@ -473,12 +488,12 @@ function App(){
   const loadAll=async()=>{
     setItems(null);
     const[vatRates,sk,de,yaz]=await Promise.all([
-      fetchCSV('vatRates',SOURCES.vatRates.url),
-      fetchCSV('SK',SOURCES.SK.url),
-      fetchCSV('DE',SOURCES.DE.url),
-      fetchCSV('YAZ',SOURCES.YAZ.url),
+      fetchCSV('vatRates'),
+      fetchCSV('SK'),
+      fetchCSV('DE'),
+      fetchCSV('YAZ'),
     ]);
-    // Note: fetchCSV uses SOURCES[key].proxy automatically
+
     const cm=vatRates&&vatRates.length?detectCols(Object.keys(vatRates[0])):{};
     const all=[];
     [['SK',sk],['DE',de],['YAZ',yaz]].forEach(([store,data])=>{
